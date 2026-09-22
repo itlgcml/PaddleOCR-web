@@ -1,0 +1,49 @@
+server:
+  port: 8080
+
+spring:
+  profiles:
+    active: dev            # 启动时可用 --spring.profiles.active=prod 覆盖
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 12MB
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss   # 对 java.util.Date 生效；LocalDateTime 见 JacksonConfig
+    time-zone: GMT+8
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:3306/paddle_ocr?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD}          # 禁止明文，必须环境变量
+    type: com.alibaba.druid.pool.DruidDataSource
+    druid:
+      initial-size: 5
+      min-idle: 5
+      max-active: 20
+      max-wait: 60000
+      validation-query: SELECT 1
+      test-while-idle: true
+      stat-view-servlet:
+        enabled: true
+        login-username: ${DRUID_USER:admin}
+        login-password: ${DRUID_PASSWORD}
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: assign_id
+      logic-delete-field: deleted
+      logic-not-delete-value: 0
+      logic-delete-value: 1
+  mapper-locations: classpath*:mapper/*.xml
+
+ocr:
+  service:
+    base-url: ${OCR_BASE_URL:http://ocr-service:8000}
+    timeout-ms: 600000
+
+api:
+  timeout-ms: 30000

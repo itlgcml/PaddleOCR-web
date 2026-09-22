@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.paddleocr</groupId>
+        <artifactId>paddle-ocr-backend</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>ocr-common</artifactId>
+    <name>ocr-common</name>
+    <description>通用契约：统一响应体、错误码、业务异常（零 Spring 依赖）</description>
+
+    <!-- 无额外依赖：swagger-annotations / lombok / test 由父 POM 公共段继承 -->
+</project>
