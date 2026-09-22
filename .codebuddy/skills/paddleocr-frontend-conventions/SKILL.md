@@ -17,6 +17,7 @@ metadata:
 | TypeScript | 5.9.3 | 禁用 TS 7 语法/配置假设 |
 | Vite | 8.3.0 | Node ≥ 20.19 |
 | Element Plus | 2.14.6 | 按需引入（unplugin） |
+| VueUse | 15.0.0 | `@vueuse/core`，按需 import 单个函数（tree-shaking），禁全量引入 |
 | Pinia | 4.0.3 | setup store 写法 |
 | Axios | 1.20.0 | 单例 + 拦截器 |
 | vue-tsc | 3.3.11 | 构建时类型检查 `vue-tsc -b` |
@@ -45,7 +46,7 @@ components/（纯 UI，被 views/composables 使用）
 - **禁随意 `any`**：入参/变量禁 `any`；第三方无类型处用 `unknown` + 类型收窄，或局部 `as` 断言并注释原因
 - 组件：`defineProps<{ ... }>()` 泛型、`defineEmits<{ (e: 'change', v: string): void }>()`、双向绑定用 `defineModel<T>()`
 - ref 显式泛型仅复杂数据需要：`ref<OcrResult | null>(null)`
-- API 模块函数必须声明返回类型 `Promise<ApiResponse<OcrResult>>`
+- API 模块函数必须声明返回类型：拦截器已解包，声明**业务数据本身** `Promise<OcrResult>` / `Promise<PageResult<OcrRecord>>`，不声明 `Promise<ApiResponse<T>>`
 - **ID 类型一律 `string`**（后端雪花 Long 已序列化为字符串）
 - 禁 `@ts-ignore`（用 `@ts-expect-error` + 注释，且仅限第三方类型缺陷）
 
@@ -69,8 +70,10 @@ components/（纯 UI，被 views/composables 使用）
 ## 6. Axios 与 API 层规范
 
 - **唯一实例** `src/api/request.ts`：`baseURL: import.meta.env.VITE_API_BASE_URL`
-- 响应拦截器统一解包：`code === 200` 返回 `data` 字段；否则 `ElMessage.error(message)` 并 reject
+- 响应拦截器统一解包：`code === 0`（`SUCCESS_CODE`）返回 `data` 字段；否则 `ElMessage.error(message)` 并 reject
 - HTTP 错误（超时/5xx/网络）拦截器统一提示，业务代码只处理成功分支
+- **注意**：业务状态码是 `0`（非 HTTP 语义码 200），以 `src/api/request.ts` 的 `SUCCESS_CODE` 为准
+- 拦截器已解包，API 函数返回**业务数据本身**，声明类型为 `Promise<T>` 而非 `Promise<ApiResponse<T>>`
 - 接口函数命名 `fetchXxx` / `submitXxx`，参数超过 2 个封装为 interface
 - 后端约定：`POST` 用 JSON body（上传除外），分页参数 `pageNum/pageSize`，响应对齐 `ApiResponse<T>`
 
@@ -80,14 +83,15 @@ components/（纯 UI，被 views/composables 使用）
 
 ```ts
 interface ApiResponse<T> {
-  code: number        // 200 成功；4xxxx 客户端错误；5xxxx 系统；503xx OCR 服务
+  code: number        // 0 成功；4xxxx 客户端错误；5xxxx 系统；503xx OCR 服务
   message: string
   data: T | null
-  timestamp: string   // ISO-8601 字符串
+  timestamp: number   // 服务器时间戳，后端 long 毫秒（非 ISO 字符串）
 }
 ```
 
-- 后端字段 camelCase；时间字段 `string`（ISO-8601），前端格式化交给展示层
+- 后端字段 camelCase；`timestamp` 为 `number`（后端 long 毫秒，非 ISO-8601 字符串），前端格式化交给展示层
+- 契约以 `src/types/api.ts` 与 `src/api/request.ts` 源码为准；两者与本文件冲突时以源码为准并同步修正本文件
 - 分页响应固定 `{ records: T[], total: number, pageNum: number, pageSize: number }`
 
 ## 8. 状态与路由

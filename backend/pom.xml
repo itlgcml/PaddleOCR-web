@@ -37,6 +37,8 @@
         <!-- springdoc 1.8.0 配套 swagger-core 线，仅供 @Schema 注解编译使用 -->
         <swagger-annotations.version>2.2.21</swagger-annotations.version>
         <hutool.version>5.8.47</hutool.version>
+        <!-- JWT：JJWT 0.11.5（JDK 8 兼容线，0.12.x 起模块化与 JDK 要求变化，禁止升级） -->
+        <jjwt.version>0.11.5</jjwt.version>
     </properties>
 
     <dependencyManagement>
@@ -98,6 +100,22 @@
                 <groupId>cn.hutool</groupId>
                 <artifactId>hutool-all</artifactId>
                 <version>${hutool.version}</version>
+            </dependency>
+            <!-- JWT 三件套版本收口（jjwt-impl/jjwt-jackson 运行时必需，声明在 ocr-service） -->
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-api</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-impl</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-jackson</artifactId>
+                <version>${jjwt.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

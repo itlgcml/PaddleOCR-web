@@ -11,11 +11,16 @@ spring:
   jackson:
     date-format: yyyy-MM-dd HH:mm:ss   # 对 java.util.Date 生效；LocalDateTime 见 JacksonConfig
     time-zone: GMT+8
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
+    timeout: 1000ms        # command 超时必须调短（Lettuce 默认 60s 会拖死请求线程），fail-open 的前提
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://${MYSQL_HOST:localhost}:3306/paddle_ocr?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD}          # 禁止明文，必须环境变量
+    password: ${DB_PASSWORD:123456}          # 禁止明文，必须环境变量
     type: com.alibaba.druid.pool.DruidDataSource
     druid:
       initial-size: 5
@@ -27,7 +32,7 @@ spring:
       stat-view-servlet:
         enabled: true
         login-username: ${DRUID_USER:admin}
-        login-password: ${DRUID_PASSWORD}
+        login-password: ${DRUID_PASSWORD:admin}
 
 mybatis-plus:
   configuration:
@@ -47,3 +52,12 @@ ocr:
 
 api:
   timeout-ms: 30000
+
+security:
+  jwt:
+    secret: ${JWT_SECRET:fb0d7dc7c665b7d2e424f228685756fa8d694943cc867f7d35be0d5531ae4a09734ac0be}  # 默认值仅供本地开发；生产必须通过 JWT_SECRET 环境变量注入；HS256 要求 ≥ 32 字符
+    access-token-ttl: 7200         # accessToken 有效秒数（2 小时）
+    refresh-token-ttl: 604800      # refreshToken 有效秒数（7 天）
+    max-failed-attempts: 5         # 连续登录失败锁定阈值
+    lock-duration-minutes: 15      # 账号锁定时长（分钟）
+    enabled: true                  # 故障一键关闭鉴权（降级开关，生产慎用）

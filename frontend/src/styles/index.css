@@ -1,5 +1,4 @@
-/* 全局基础样式：仅做重置与画布设定，组件样式一律 scoped */
-
+/* 全局基础样式（全局样式仅放 src/styles/） */
 * {
   box-sizing: border-box;
 }
@@ -7,24 +6,35 @@
 html,
 body,
 #app {
-  height: 100%;
   margin: 0;
   padding: 0;
+  height: 100%;
 }
 
 body {
   font-family:
     'PingFang SC',
     'Helvetica Neue',
-    Helvetica,
-    'Microsoft YaHei',
     Arial,
+    'Microsoft YaHei',
     sans-serif;
   font-size: 14px;
-  font-weight: 400;
-  line-height: 1.6;
   color: #303133;
   background-color: #f5f7fa;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 统一细滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background-color: #c0c4cc;
+}
+
+::-webkit-scrollbar-track {
+  background-color: transparent;
 }

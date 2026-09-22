@@ -32,6 +32,11 @@
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-ui</artifactId>
         </dependency>
+        <!-- 认证与请求拦截统一走 Spring Security 过滤器链（版本由 Boot 2.7 BOM 托管 = 5.7.11，禁止 6.x/jakarta） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

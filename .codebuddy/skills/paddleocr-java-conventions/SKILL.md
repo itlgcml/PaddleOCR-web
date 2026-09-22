@@ -110,6 +110,12 @@ JDK 8 可用：Lambda、Stream、`Optional`、`LocalDateTime`、`CompletableFutu
 
 **API 设计**：统一 `/api` 前缀、资源小写 kebab-case；GET 查询 / POST 创建或上传 / PUT 更新 / DELETE 删除；springdoc：类上 `@Tag`、方法上 `@Operation`。
 
+**权限注解**：生成代码**不加** `@PreAuthorize` 等方法/类级安全注解（如 `@PreAuthorize("hasRole('ADMIN')")`）；权限控制统一由 `SecurityConfig` 的 URL 规则或拦截器实现。
+
+**Mapping 路径**：方法级 `@GetMapping` / `@PostMapping` / `@PutMapping` / `@DeleteMapping` **必须显式写明路径**（如 `@PostMapping("/create")`、`@GetMapping("/tree")`）；禁止省略路径值（如 `@PostMapping` 后不带路径），避免接口直接挂在类级前缀上导致路径不明确。
+
+**路径变量**：带 `{id}` 的接口必须先有一个英文动作名路径段，再接 `/{id}`（如 `@PutMapping("/update/{id}")`、`@DeleteMapping("/delete/{id}")`、`@GetMapping("/detail/{id}")`）；**禁止路径仅有 `/{id}`**（如 `@PutMapping("/{id}")`、`@DeleteMapping("/{id}")`）。
+
 **依赖管理**：新依赖先加父 POM `dependencyManagement`（版本进 `<properties>`），再在目标模块声明（不带版本）；先确认 JDK 8 + Boot 2.7 兼容（重点排除 jakarta 命名空间的 3.x 系 starter）；测试用 parent 自带 `spring-boot-starter-test`（JUnit 5 + Mockito），父 POM 公共段已引入。
 
 ## 常见错误对照表
