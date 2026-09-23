@@ -5,8 +5,8 @@ package com.paddleocr.web.client.constant;
  */
 public enum OcrApi {
 
-    /** 图片识别接口 */
-    RECOGNIZE("/ocr/recognize");
+    /** 版面解析接口（JSON body：file 为 Base64 字符串，图片单页 / PDF 按页返回结构化结果） */
+    LAYOUT_PARSING("/layout-parsing");
 
     private final String path;
 

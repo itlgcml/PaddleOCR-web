@@ -1,11 +1,18 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { Clock, DocumentChecked, Picture } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
+import { useOcrRecognize } from '@/composables/useOcrRecognize'
+import OcrUploadDialog from '@/components/OcrUploadDialog.vue'
+import type { OcrUploadPayload } from '@/types/ocr'
 
 const auth = useAuthStore()
 const { user } = storeToRefs(auth)
+
+const { submitting, submitOcrFile } = useOcrRecognize()
+
+const uploadVisible = ref(false)
 
 const greeting = computed(() => {
   const hour = new Date().getHours()
@@ -17,28 +24,64 @@ const greeting = computed(() => {
 })
 const displayName = computed(() => user.value?.nickname || user.value?.username || '用户')
 
-const features = [
-  { icon: Picture, title: '图片文字识别', desc: '上传图片，基于 PaddleOCR 引擎提取文本内容，即将上线。' },
+type FeatureAction = 'recognize'
+
+const features: Array<{
+  icon: typeof Picture
+  title: string
+  desc: string
+  action?: FeatureAction
+}> = [
+  {
+    icon: Picture,
+    title: '文件识别',
+    desc: '上传图片或 PDF 文件，基于 PaddleOCR-VL1.6 引擎提取内容。',
+    action: 'recognize',
+  },
   { icon: DocumentChecked, title: '识别结果管理', desc: '结构化保存识别结果，支持复制与导出，即将上线。' },
   { icon: Clock, title: '历史记录追溯', desc: '完整保留每次识别的时间、文件与结果，即将上线。' },
 ]
+
+function onFeatureCardClick(action?: FeatureAction): void {
+  if (action === 'recognize') {
+    uploadVisible.value = true
+  }
+}
+
+/** 弹框确认：发起识别；失败保持弹框打开供重试/换文件 */
+async function onUploadConfirm(payload: OcrUploadPayload): Promise<void> {
+  const success = await submitOcrFile(payload.file, payload.fileType)
+  if (success) {
+    uploadVisible.value = false
+  }
+}
 </script>
 
 <template>
   <div class="home">
     <div class="hero">
       <div class="hero-title">{{ greeting }}，{{ displayName }}</div>
-      <div class="hero-sub">欢迎使用 PaddleOCR 在线识别平台，文字识别功能正在接入中，敬请期待。</div>
+      <div class="hero-sub">欢迎使用 PaddleOCR 在线识别平台，上传图片或 PDF 文件即可快速提取内容。</div>
     </div>
     <div class="features">
-      <div v-for="feature in features" :key="feature.title" class="feature-card">
+      <div
+        v-for="feature in features"
+        :key="feature.title"
+        class="feature-card"
+        :class="{ actionable: !!feature.action }"
+        :tabindex="feature.action ? 0 : undefined"
+        @click="onFeatureCardClick(feature.action)"
+        @keydown.enter="onFeatureCardClick(feature.action)"
+      >
         <div class="feature-icon">
           <el-icon :size="22"><component :is="feature.icon" /></el-icon>
         </div>
         <div class="feature-title">{{ feature.title }}</div>
         <div class="feature-desc">{{ feature.desc }}</div>
+        <div v-if="feature.action" class="feature-entry">点击上传 →</div>
       </div>
     </div>
+    <OcrUploadDialog v-model="uploadVisible" :loading="submitting" @confirm="onUploadConfirm" />
   </div>
 </template>
 
@@ -80,6 +123,22 @@ const features = [
 .feature-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 8px 24px rgba(30, 111, 255, 0.12);
+}
+
+.feature-card.actionable {
+  cursor: pointer;
+}
+
+.feature-card.actionable:focus-visible {
+  outline: 2px solid #1e6fff;
+  outline-offset: 2px;
+}
+
+.feature-entry {
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #1e6fff;
 }
 
 .feature-icon {

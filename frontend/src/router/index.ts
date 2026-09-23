@@ -38,6 +38,12 @@ const router = createRouter({
           meta: { requiresAuth: true, title: '首页' },
         },
         {
+          path: 'ocr/result',
+          name: 'OcrResult',
+          component: () => import('@/views/OcrResultView.vue'),
+          meta: { requiresAuth: true, title: '识别结果' },
+        },
+        {
           path: 'system/orgs',
           name: 'OrgManage',
           component: () => import('@/views/system/OrgManageView.vue'),

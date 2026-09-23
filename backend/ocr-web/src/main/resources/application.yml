@@ -47,7 +47,7 @@ mybatis-plus:
 
 ocr:
   service:
-    base-url: ${OCR_BASE_URL:http://ocr-service:8000}
+    base-url: ${OCR_BASE_URL:http://47.110.71.158:8080}
     timeout-ms: 600000
 
 api:

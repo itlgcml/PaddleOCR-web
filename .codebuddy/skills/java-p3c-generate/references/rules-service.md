@@ -1,6 +1,6 @@
 # 生成 Service 层规则（ocr-service：业务编排 / DTO / VO / 事务 / 并发 / 单测）
 
-加载时机：生成 `XxxService` / `XxxServiceImpl` / 业务 DTO / 出参 VO / 事务 / 线程池 / 异步 / 单元测试。
+加载时机：生成 `XxxService` / `XxxServiceImpl` / 业务 DTO / 出参 VO / 事务 / 线程池 / 异步。
 
 ## 1. 模块与包
 
@@ -51,12 +51,7 @@
 
 ## 7. 单元测试（UT-01 ~ UT-16）
 
-- 遵守 AIR 原则：全自动、独立、可重复；禁止用例间互相调用与依赖执行顺序
-- 代码放 `src/test/java`，**禁止写在业务目录**；JUnit 5 + Mockito（父 POM 已引入 `spring-boot-starter-test`）
-- 粒度到方法级；外部依赖用 Mock，不依赖真实网络/数据库
-- 用 BCDE 原则设计用例：边界、正确输入、按设计、错误输入
-- 禁止 `System.out` 人肉验证，一律 assert
-- 核心业务增量代码必须通过单测
+**本技能不生成任何测试代码**：`src/test/**` 下的单元测试一律不写，由专门的测试 skill 负责。仅在用户明确要求查阅测试规约时，参考 `java-p3c-review` 的 UT-01 ~ UT-16 条文。
 
 ## 8. 自检
 

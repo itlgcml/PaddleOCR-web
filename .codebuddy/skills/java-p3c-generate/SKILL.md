@@ -1,6 +1,6 @@
 ---
 name: java-p3c-generate
-description: "生成本项目 Java 后端代码时使用（P3C 生成侧规约，java-p3c-review 的互补技能）。当用户要求'写/新增/实现一个 Java 类、Controller、Service、Mapper、DTO、DO、枚举、DDL、单元测试'，或说'按规范生成后端代码'、'新增一个 OCR 接口'、'加一张表'时触发。Do NOT trigger when: 审查/检查已存在的代码（用 java-p3c-review）、生成前端 Vue/TS 代码（用 paddleocr-frontend-conventions）、仅讨论技术概念、只改 yml/配置。"
+description: "生成本项目 Java 后端代码时使用（P3C 生成侧规约，java-p3c-review 的互补技能）。当用户要求'写/新增/实现一个 Java 类、Controller、Service、Mapper、DTO、DO、枚举、DDL'，或说'按规范生成后端代码'、'新增一个 OCR 接口'、'加一张表'时触发。Do NOT trigger when: 审查/检查已存在的代码（用 java-p3c-review）、生成前端 Vue/TS 代码（用 paddleocr-frontend-conventions）、生成单元测试/测试代码（由专门的测试 skill 负责）、仅讨论技术概念、只改 yml/配置。"
 version: 1.0.0
 ---
 
@@ -21,7 +21,7 @@ version: 1.0.0
 | 入口 | 本文件 | 每次生成 |
 | 核心 | `references/core.md` | **每次生成必读** |
 | 分域 | `references/rules-dal.md` | 生成 DO / Mapper / mapper XML / DDL / 索引 / SQL |
-| 分域 | `references/rules-service.md` | 生成 Service / Impl / 业务 DTO / 事务 / 线程池 / 单元测试 |
+| 分域 | `references/rules-service.md` | 生成 Service / Impl / 业务 DTO / 事务 / 线程池 |
 | 分域 | `references/rules-web.md` | 生成 Controller / 入参 DTO / 全局异常处理 / 上传 / Web 配置 |
 | 分域 | `references/rules-client.md` | 生成 ocr-client 的 HTTP 客户端 / 配置属性 / 外部服务 VO |
 | 深度 | `references/deep-reference-map.md` | 需要某条规约原文或正反例时，按图索骥读 knowledge 文件 |
@@ -45,7 +45,9 @@ version: 1.0.0
 4. 禁止 SQL 字符串拼接与 `${}`（只用 `#{}` / `LambdaQueryWrapper`）
 5. 禁止 `Executors` 创建线程池；禁止事务方法内做 HTTP 调用
 6. 禁止魔法值、禁止吞异常、禁止 `System.out.println`
-7. 生成后必须执行自检清单再交付
+7. **禁止执行任何 `mvn` / `npm` 命令**（编译、测试、打包、安装依赖等一律由用户自行执行），本技能只负责生成与修改代码文件
+8. **禁止生成任何测试代码**（`src/test/**` 下的单元测试等），测试由专门的测试 skill 负责，本技能不涉及
+9. 生成后必须执行自检清单再交付
 
 ## 子命令
 
