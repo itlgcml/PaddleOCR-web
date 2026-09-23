@@ -105,7 +105,7 @@ class OcrClientTest {
                         .encodeToString("%PDF-1.4 test".getBytes(StandardCharsets.UTF_8)),
                 payload.getStr("file"), "file 应为文件内容 Base64 字符串");
         assertEquals(Integer.valueOf(0), payload.getInt("fileType"), "应透传 fileType");
-        assertEquals(Boolean.FALSE, payload.getBool("visualize"), "应关闭可视化结果图（前端按原始文件预览）");
+        assertEquals(Boolean.FALSE, payload.getBool("visualize"), "应通过 visualize=false 关闭可视化结果图（前端按原始文件预览）");
     }
 
     @Test

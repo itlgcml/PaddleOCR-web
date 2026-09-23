@@ -6,8 +6,8 @@ spring:
     active: dev            # 启动时可用 --spring.profiles.active=prod 覆盖
   servlet:
     multipart:
-      max-file-size: 10MB
-      max-request-size: 12MB
+      max-file-size: 100MB
+      max-request-size: 120MB
   jackson:
     date-format: yyyy-MM-dd HH:mm:ss   # 对 java.util.Date 生效；LocalDateTime 见 JacksonConfig
     time-zone: GMT+8

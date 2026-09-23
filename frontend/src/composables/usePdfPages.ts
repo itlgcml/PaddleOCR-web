@@ -1,7 +1,8 @@
 /**
  * PDF 逐页渲染（pdfjs-dist）：结果页左侧原始文件预览专用。
  * - worker 以 ?url 静态资源方式引入（由 Vite 打包输出，避免 CDN）
- * - renderPageTo 按目标 CSS 像素宽等比渲染，内部乘 devicePixelRatio 提升清晰度
+ * - renderPageTo 按 PDF 原始尺寸渲染（scale=1 视口，1pt = 1 CSS px），不随面板宽度缩放，
+ *   内部乘 devicePixelRatio 提升清晰度；页面超出面板时由面板横向滚动
  * - PdfPageBox.baseWidth/baseHeight 为 PDF pt 尺寸（scale=1 视口），供 block_bbox 坐标换算
  */
 import * as pdfjsLib from 'pdfjs-dist'
@@ -27,24 +28,23 @@ export function usePdfPages() {
     return doc
   }
 
-  /** 渲染指定页到 canvas（renderWidth 为目标 CSS 像素宽），返回页面基准尺寸 */
+  /** 渲染指定页到 canvas（按 PDF 原始尺寸显示，不缩放），返回页面基准尺寸 */
   async function renderPageTo(
     canvas: HTMLCanvasElement,
     pageNumber: number,
-    renderWidth: number,
   ): Promise<PdfPageBox> {
     if (!doc) {
       throw new Error('PDF 文档尚未加载')
     }
     const page = await doc.getPage(pageNumber)
     const baseViewport = page.getViewport({ scale: 1 })
-    const viewport = page.getViewport({ scale: renderWidth / baseViewport.width })
     const dpr = window.devicePixelRatio || 1
-    canvas.width = Math.floor(viewport.width * dpr)
-    canvas.height = Math.floor(viewport.height * dpr)
-    // width 固定、height auto：配合 CSS max-width 压缩时仍按属性宽高比等比缩放
-    canvas.style.width = `${Math.floor(viewport.width)}px`
-    canvas.style.height = 'auto'
+    const viewport = page.getViewport({ scale: dpr })
+    canvas.width = Math.floor(viewport.width)
+    canvas.height = Math.floor(viewport.height)
+    // 显示尺寸固定为 PDF pt 原始大小（1pt = 1 CSS px），不随面板宽度缩放
+    canvas.style.width = `${Math.floor(baseViewport.width)}px`
+    canvas.style.height = `${Math.floor(baseViewport.height)}px`
     const ctx = canvas.getContext('2d')
     if (!ctx) {
       throw new Error('canvas 2d 上下文不可用')

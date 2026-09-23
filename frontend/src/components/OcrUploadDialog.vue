@@ -8,7 +8,7 @@ import type { OcrFileType, OcrUploadPayload } from '@/types/ocr'
 const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'bmp', 'webp']
 
 /** 上传大小上限（与后端 multipart 限制一致） */
-const MAX_FILE_SIZE_MB = 10
+const MAX_FILE_SIZE_MB = 100
 
 const props = defineProps<{ loading?: boolean }>()
 
@@ -114,7 +114,7 @@ function resetSelection(): void {
       <el-icon :size="42" class="upload-icon"><UploadFilled /></el-icon>
       <div class="upload-text">将文件拖到此处，或点击选择</div>
       <template #tip>
-        <div class="upload-tip">支持 PDF / JPG / PNG / BMP / WEBP，单个文件不超过 10MB</div>
+        <div class="upload-tip">支持 PDF / JPG / PNG / BMP / WEBP，单个文件不超过 100MB</div>
       </template>
     </el-upload>
 

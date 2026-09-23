@@ -33,7 +33,7 @@ public class OcrController {
     /**
      * 文件识别（鉴权）：multipart 流式转发上游，结果直返不落库
      *
-     * @param file 上传文件（jpg/jpeg/png/bmp/webp/pdf，≤10MB；缺 part 由既有 Handler 转 40000）
+     * @param file 上传文件（jpg/jpeg/png/bmp/webp/pdf，≤100MB；缺 part 由既有 Handler 转 40000）
      * @param fileType 文件类型（0=PDF，1=图像；缺 part 由既有 Handler 转 40000）
      * @return 上游 result 原始 JSON（layoutParsingResults / dataInfo，字段名与上游契约一致，不做 VO 映射）
      */

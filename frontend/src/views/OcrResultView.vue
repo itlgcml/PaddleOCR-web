@@ -26,7 +26,6 @@ const { fileName, fileType, fileUrl, result } = storeToRefs(ocrStore)
 const { load, renderPageTo, destroy } = usePdfPages()
 
 // ---------- 状态 ----------
-const previewPanelEl = ref<HTMLElement | null>(null)
 /** 图像输入：原图固有像素尺寸（即 block_bbox 坐标基准） */
 const imageEl = ref<HTMLImageElement | null>(null)
 const imageSize = shallowRef<PageBasis | null>(null)
@@ -74,22 +73,57 @@ function resolveBasis(pageIndex: number): PageBasis | null {
   return imageSize.value
 }
 
-/** 高亮框样式：block_bbox 像素坐标 → 基于 page-wrap 的百分比定位 */
-function highlightStyle(pageIndex: number): CSSProperties | null {
+/** 高亮多边形定位：包围盒样式（供滚动定位）+ SVG polygon 坐标（viewBox 以包围盒为用户坐标系） */
+interface PolygonHighlight {
+  boxStyle: CSSProperties
+  viewBox: string
+  points: string
+}
+
+/**
+ * 高亮多边形：优先 block_polygon_points 四点定位（贴合倾斜/旋转区域，更精确），
+ * 缺失时回退 block_bbox 矩形四点；坐标按包围盒百分比定位，由 SVG 拉伸至预览尺寸
+ */
+function polygonHighlight(pageIndex: number): PolygonHighlight | null {
   if (!activeBlock.value || activeBlock.value.pageIndex !== pageIndex) {
     return null
   }
-  const bbox = blocksOf(pageIndex).find(b => b.block_id === activeBlock.value?.blockId)?.block_bbox
+  const block = blocksOf(pageIndex).find(b => b.block_id === activeBlock.value?.blockId)
+  const polygon = block?.block_polygon_points
+  const bbox = block?.block_bbox
+  const corners =
+    polygon && polygon.length >= 3
+      ? polygon
+      : bbox && bbox.length === 4
+        ? [
+            [bbox[0], bbox[1]],
+            [bbox[2], bbox[1]],
+            [bbox[2], bbox[3]],
+            [bbox[0], bbox[3]],
+          ]
+        : null
   const basis = resolveBasis(pageIndex)
-  if (!bbox || bbox.length !== 4 || !basis) {
+  if (!corners || !basis) {
     return null
   }
-  const [x1, y1, x2, y2] = bbox
+  const xs = corners.map(([x]) => x)
+  const ys = corners.map(([, y]) => y)
+  const minX = Math.min(...xs)
+  const minY = Math.min(...ys)
+  const width = Math.max(...xs) - minX
+  const height = Math.max(...ys) - minY
+  if (width <= 0 || height <= 0) {
+    return null
+  }
   return {
-    left: `${(x1 / basis.width) * 100}%`,
-    top: `${(y1 / basis.height) * 100}%`,
-    width: `${((x2 - x1) / basis.width) * 100}%`,
-    height: `${((y2 - y1) / basis.height) * 100}%`,
+    boxStyle: {
+      left: `${(minX / basis.width) * 100}%`,
+      top: `${(minY / basis.height) * 100}%`,
+      width: `${(width / basis.width) * 100}%`,
+      height: `${(height / basis.height) * 100}%`,
+    },
+    viewBox: `${minX} ${minY} ${width} ${height}`,
+    points: corners.map(([x, y]) => `${x},${y}`).join(' '),
   }
 }
 
@@ -145,10 +179,8 @@ function setCanvasRef(pageNumber: number, el: unknown): void {
   }
 }
 
-/** PDF 逐页渲染（渲染宽度按预览面板内容宽收敛） */
+/** PDF 逐页渲染（按 PDF 原始尺寸显示，不随面板宽度缩放） */
 async function renderPdfPages(): Promise<void> {
-  const panelWidth = previewPanelEl.value?.clientWidth ?? 0
-  const renderWidth = Math.max(panelWidth - 32, 320)
   rendering.value = true
   try {
     await nextTick()
@@ -158,7 +190,7 @@ async function renderPdfPages(): Promise<void> {
       if (!canvas) {
         continue
       }
-      boxes.push(await renderPageTo(canvas, pageNumber, renderWidth))
+      boxes.push(await renderPageTo(canvas, pageNumber))
       pdfBoxes.value = [...boxes]
     }
   } finally {
@@ -202,7 +234,7 @@ onBeforeUnmount(() => {
 
     <div class="workspace">
       <!-- 左侧：原始文件预览（PDF 逐页 / 单图），多页上下滚动 -->
-      <section ref="previewPanelEl" v-loading="rendering" class="preview-panel" aria-label="文件预览">
+      <section v-loading="rendering" class="preview-panel" aria-label="文件预览">
         <el-empty v-if="previewCount === 0" description="暂无预览" />
         <template v-else-if="fileType === 0">
           <div
@@ -214,11 +246,23 @@ onBeforeUnmount(() => {
               <canvas :ref="el => setCanvasRef(pageNumber, el)" class="page-canvas" />
               <div class="highlight-layer">
                 <div
-                  v-if="highlightStyle(pageNumber - 1)"
+                  v-if="polygonHighlight(pageNumber - 1)"
                   :id="highlightDomId(pageNumber - 1)"
-                  :style="highlightStyle(pageNumber - 1)"
+                  :style="polygonHighlight(pageNumber - 1)?.boxStyle"
                   class="highlight-box"
-                />
+                >
+                  <svg
+                    :viewBox="polygonHighlight(pageNumber - 1)?.viewBox"
+                    preserveAspectRatio="none"
+                    class="highlight-svg"
+                    aria-hidden="true"
+                  >
+                    <polygon
+                      :points="polygonHighlight(pageNumber - 1)?.points ?? ''"
+                      class="highlight-polygon"
+                    />
+                  </svg>
+                </div>
               </div>
             </div>
             <div class="page-number">{{ pageNumber }} / {{ numPages }}</div>
@@ -236,11 +280,20 @@ onBeforeUnmount(() => {
               />
               <div class="highlight-layer">
                 <div
-                  v-if="highlightStyle(0)"
+                  v-if="polygonHighlight(0)"
                   :id="highlightDomId(0)"
-                  :style="highlightStyle(0)"
+                  :style="polygonHighlight(0)?.boxStyle"
                   class="highlight-box"
-                />
+                >
+                  <svg
+                    :viewBox="polygonHighlight(0)?.viewBox"
+                    preserveAspectRatio="none"
+                    class="highlight-svg"
+                    aria-hidden="true"
+                  >
+                    <polygon :points="polygonHighlight(0)?.points ?? ''" class="highlight-polygon" />
+                  </svg>
+                </div>
               </div>
             </div>
           </div>
@@ -343,7 +396,7 @@ onBeforeUnmount(() => {
   flex: 0 0 46%;
   min-width: 0;
   padding: 16px;
-  overflow-y: auto;
+  overflow: auto;
   background-color: #ffffff;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
@@ -352,7 +405,6 @@ onBeforeUnmount(() => {
 .page-wrap {
   position: relative;
   width: fit-content;
-  max-width: 100%;
   margin: 0 auto;
 }
 
@@ -371,10 +423,20 @@ onBeforeUnmount(() => {
 .page-canvas,
 .page-image {
   display: block;
-  max-width: 100%;
   background-color: #f5f7fa;
   border-radius: 4px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* PDF 按原始尺寸显示（内联 width/height 固定 pt 值），禁止 max-width 压缩导致拉伸变形 */
+.page-canvas {
+  max-width: none;
+}
+
+/* 图像输入保留等比收敛，超大图不撑破面板 */
+.page-image {
+  max-width: 100%;
+  height: auto;
 }
 
 .highlight-layer {
@@ -387,13 +449,24 @@ onBeforeUnmount(() => {
   pointer-events: none;
 }
 
-/* 红色半透明高亮框（点击内容块按 block_bbox 定位） */
+/* 红色半透明多边形高亮（点击内容块按 block_polygon_points 四点定位）：
+   外层盒定位在多边形包围盒（供滚动定位），内层 SVG 按包围盒 viewBox 拉伸绘制多边形 */
 .highlight-box {
   position: absolute;
-  box-sizing: border-box;
-  background-color: rgba(245, 63, 63, 0.32);
-  border: 2px solid #f56c6c;
-  border-radius: 2px;
+}
+
+.highlight-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.highlight-polygon {
+  fill: rgba(245, 63, 63, 0.32);
+  stroke: #f56c6c;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
 }
 
 .page-number {

@@ -1,7 +1,7 @@
 /**
  * 文件识别（版面解析）相关类型。
  * 后端 ApiResponse.data 即上游 result 原始 JSON，字段名与上游契约（接口文档 §3）完全一致，不做重命名。
- * 注意：block_bbox 坐标系为上游栅格化后的页面像素（PDF 按 144dpi 换算，图像即原图像素）。
+ * 注意：block_bbox / block_polygon_points 坐标系为上游栅格化后的页面像素（PDF 按 144dpi 换算，图像即原图像素）。
  */
 
 /** 文件类型：0 = PDF，1 = 图像 */
@@ -11,6 +11,8 @@ export type OcrFileType = 0 | 1
 export interface OcrParsingBlock {
   /** 版面区域边界框（结果图像素坐标 [x1, y1, x2, y2]） */
   block_bbox: number[] | null
+  /** 版面区域四点轮廓（结果图像素坐标 [[x, y] × 4]，贴合倾斜/旋转区域，比 block_bbox 更精确） */
+  block_polygon_points: number[][] | null
   /** 版面区域标签：text/title/table/figure/formula/seal 等 */
   block_label: string
   /** 识别内容（文本/表格 HTML/公式） */

@@ -62,7 +62,7 @@ public class OcrClient {
     private final OcrServiceProperties ocrServiceProperties;
 
     /**
-     * 文件识别（图片/PDF）：MultipartFile 全量读入并 Base64 编码，随 JSON body 上送（受 10MB 上传上限约束，内存可控）
+     * 文件识别（图片/PDF）：MultipartFile 全量读入并 Base64 编码，随 JSON body 上送（受 100MB 上传上限约束，注意大文件内存占用）
      *
      * @param file 上传文件（经 service 层三重校验，非空且类型合法）
      * @param fileType 文件类型（0=PDF，1=图像，经 service 层值域校验）
@@ -76,7 +76,8 @@ public class OcrClient {
         post.setConfig(RequestConfig.custom()
                 .setResponseTimeout(Timeout.ofMilliseconds(ocrServiceProperties.getTimeoutMs()))
                 .build());
-        // JSON body：file 为文件内容 Base64 字符串，fileType 显式声明（0=PDF，1=图像），visualize 关闭结果图（前端按原始文件预览）
+        // JSON body：file 为文件内容 Base64 字符串，fileType 显式声明（0=PDF，1=图像），visualize=false 关闭结果图返回（前端按原始文件预览），
+        // useChartRecognition/useSealRecognition 固定 true 开启图表识别与印章识别（请求体字段默认值随序列化上送）
         LayoutParsingRequest requestBody = new LayoutParsingRequest(encodeBase64(file), fileType);
         post.setEntity(new StringEntity(toJson(requestBody), ContentType.APPLICATION_JSON));
 
