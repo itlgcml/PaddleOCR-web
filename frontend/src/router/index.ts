@@ -44,6 +44,12 @@ const router = createRouter({
           meta: { requiresAuth: true, title: '识别结果' },
         },
         {
+          path: 'workflow-design',
+          name: 'WorkflowDesign',
+          component: () => import('@/views/system/WorkflowDesignView.vue'),
+          meta: { requiresAuth: true, title: '流程设计' },
+        },
+        {
           path: 'system/orgs',
           name: 'OrgManage',
           component: () => import('@/views/system/OrgManageView.vue'),

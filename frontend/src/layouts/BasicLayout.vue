@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { CaretBottom, HomeFilled, Key, OfficeBuilding, Setting, SwitchButton, User } from '@element-plus/icons-vue'
+import { CaretBottom, Connection, HomeFilled, Key, OfficeBuilding, Setting, SwitchButton, User } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 
 const ROLE_LABELS: Record<string, string> = { ADMIN: '管理员', USER: '普通用户' }
@@ -62,6 +62,10 @@ async function handleCommand(command: string | number | object): Promise<void> {
         <el-menu-item index="/">
           <el-icon><HomeFilled /></el-icon>
           <span>首页</span>
+        </el-menu-item>
+        <el-menu-item index="/workflow-design">
+          <el-icon><Connection /></el-icon>
+          <span>流程设计</span>
         </el-menu-item>
         <el-sub-menu v-if="isAdmin" index="/system">
           <template #title>

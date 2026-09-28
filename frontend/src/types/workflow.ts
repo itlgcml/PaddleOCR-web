@@ -1,0 +1,113 @@
+/** 审批流节点类型 */
+export enum NodeType {
+  START = 'START',
+  APPROVER = 'APPROVER',
+  CC = 'CC',
+  CONDITIONS = 'CONDITIONS',
+  CONDITION = 'CONDITION',
+  TRANSACT = 'TRANSACT',
+}
+
+/** 审批人来源 */
+export type ApproverSource = 'MEMBER' | 'LEADER' | 'ROLE' | 'SELF_SELECT' | 'INITIATOR'
+
+/** 多人审批方式：或签 / 会签 */
+export type MultiApproverMode = 'OR' | 'AND'
+
+/** 审批人为空时的策略 */
+export type EmptyApproverPolicy = 'AUTO_PASS' | 'TO_LEADER' | 'TO_ADMIN'
+
+/** 条件操作符 */
+export type ConditionOperator =
+  | 'EQ'
+  | 'NEQ'
+  | 'GT'
+  | 'GTE'
+  | 'LT'
+  | 'LTE'
+  | 'CONTAIN'
+  | 'NOT_CONTAIN'
+
+/** 单条条件规则 */
+export interface ConditionRule {
+  fieldKey: string
+  fieldName: string
+  operator: ConditionOperator
+  value: string
+}
+
+/** 发起人节点属性 */
+export interface StartProps {
+  rangeType: 'ALL' | 'MEMBER' | 'ROLE'
+  memberIds: string[]
+}
+
+/** 审批节点属性 */
+export interface ApproverProps {
+  source: ApproverSource
+  memberIds: string[]
+  leaderLevel: number
+  multiMode: MultiApproverMode
+  emptyPolicy: EmptyApproverPolicy
+  canRejectToStart: boolean
+}
+
+/** 抄送节点属性 */
+export interface CcProps {
+  memberIds: string[]
+  enableHandAdd: boolean
+}
+
+/** 条件分支列属性 */
+export interface ConditionProps {
+  rules: ConditionRule[]
+  isDefault: boolean
+}
+
+export type NodeProps = StartProps | ApproverProps | CcProps | ConditionProps | Record<string, never>
+
+/** 流程节点（递归结构：主干 childNode 串联，分支 conditionNodes 横向展开） */
+export interface WorkflowNode {
+  id: string
+  name: string
+  type: NodeType
+  props: NodeProps
+  childNode: WorkflowNode | null
+  conditionNodes?: WorkflowNode[]
+}
+
+/** 流程文档（导出/保存的完整结构） */
+export interface WorkflowDoc {
+  name: string
+  updatedAt: number
+  root: WorkflowNode
+}
+
+/** 校验错误项 */
+export interface WorkflowError {
+  nodeId: string
+  message: string
+}
+
+/** 节点默认属性工厂 */
+export function createNodeProps(type: NodeType): NodeProps {
+  switch (type) {
+    case NodeType.START:
+      return { rangeType: 'ALL', memberIds: [] }
+    case NodeType.APPROVER:
+      return {
+        source: 'MEMBER',
+        memberIds: [],
+        leaderLevel: 1,
+        multiMode: 'OR',
+        emptyPolicy: 'AUTO_PASS',
+        canRejectToStart: false,
+      }
+    case NodeType.CC:
+      return { memberIds: [], enableHandAdd: false }
+    case NodeType.CONDITION:
+      return { rules: [], isDefault: false }
+    default:
+      return {}
+  }
+}
