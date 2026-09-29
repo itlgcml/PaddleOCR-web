@@ -17,7 +17,7 @@ const isBranch = computed(() => props.node !== null && isBranchContainer(props.n
 /** 是否为并行节点：无默认列，加列文案与条件分支区分 */
 const isParallel = computed(() => props.node?.type === NodeType.PARALLEL)
 
-/** 是否默认条件列（固定最右、不可删除） */
+/** 是否默认条件列（固定最右） */
 function isDefault(branch: WorkflowNode): boolean {
   return (branch.props as ConditionProps).isDefault === true
 }
@@ -30,12 +30,15 @@ function canMove(idx: number, action: BranchMoveAction): boolean {
   return idx < branches.value.length - 1
 }
 
-/** 删除按钮可用性：默认列不可删；条件分支至少留 1 列、并行节点至少留 2 列 */
+/**
+ * 删除按钮可用性：已达最小规模（2 列）时任列可删，此时删的是整个分支节点；
+ * 多列形态下默认条件列不可删，其余列只删自身。
+ */
 function canDelete(branch: WorkflowNode): boolean {
-  if (isDefault(branch)) {
-    return false
+  if (branches.value.length <= 2) {
+    return true
   }
-  return branches.value.length > (isParallel.value ? 2 : 1)
+  return !isDefault(branch)
 }
 </script>
 

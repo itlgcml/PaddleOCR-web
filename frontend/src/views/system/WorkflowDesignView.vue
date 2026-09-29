@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import { isBranchContainer, NodeType, type BranchMoveAction, type NodeProps, type WorkflowNode } from '@/types/workflow'
+import { isBranchContainer, NodeType, type BranchDeleteAction, type BranchMoveAction, type NodeProps, type WorkflowNode } from '@/types/workflow'
 import { useWorkflowStore } from '@/stores/workflow'
 import { useWorkflowValidate } from '@/composables/useWorkflowValidate'
 import WorkflowToolbar from '@/components/workflow/WorkflowToolbar.vue'
@@ -66,14 +66,41 @@ async function onAddBranch(containerId: string): Promise<void> {
   onOpen(branch)
 }
 
+/** 分支删除确认文案：按删除动作区分（只删列 / 删整个条件分支节点 / 删整个并行节点） */
+const BRANCH_DELETE_CONFIRM: Record<Exclude<BranchDeleteAction, 'NONE'>, { title: string; message: string }> = {
+  COLUMN: {
+    title: '删除分支',
+    message: '删除该分支列将连同其内部子流程一并删除，确定吗？',
+  },
+  BRANCH: {
+    title: '删除条件分支节点',
+    message: '该条件分支仅剩「1 个条件 + 1 个默认条件」，删除会连同整个条件分支节点及其内部子流程一并移除，确定吗？',
+  },
+  PARALLEL: {
+    title: '删除并行节点',
+    message: '该并行节点仅剩 2 个并行节点，删除会连同整个并行节点及其内部子流程一并移除，确定吗？',
+  },
+}
+
 async function onDelBranch(id: string): Promise<void> {
+  const action = store.resolveBranchDeleteAction(id)
+  if (action === 'NONE') {
+    ElMessage.warning('默认条件列不可删除')
+    return
+  }
+  const { title, message } = BRANCH_DELETE_CONFIRM[action]
   try {
-    await ElMessageBox.confirm('删除该分支列将连同其内部子流程一并删除，确定吗？', '删除分支', { type: 'warning' })
+    await ElMessageBox.confirm(message, title, { type: 'warning' })
   } catch {
     return
   }
   if (!store.deleteBranch(id)) {
-    ElMessage.warning('该分支不可删除：默认条件列，或分支数量已达下限')
+    ElMessage.error('删除失败')
+    return
+  }
+  // 删的是整个节点（条件分支 / 并行节点）时，同步收起属性抽屉
+  if (action !== 'COLUMN') {
+    drawerVisible.value = false
   }
 }
 

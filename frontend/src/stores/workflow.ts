@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { deepClone } from '@/utils/clone'
-import { createNodeProps, isBranchContainer, NodeType, type BranchMoveAction, type ConditionProps, type NodeProps, type NodeType as NodeTypeT, type WorkflowDoc, type WorkflowNode } from '@/types/workflow'
+import { createNodeProps, isBranchContainer, NodeType, type BranchDeleteAction, type BranchMoveAction, type ConditionProps, type NodeProps, type NodeType as NodeTypeT, type WorkflowDoc, type WorkflowNode } from '@/types/workflow'
 
 const DRAFT_KEY = 'workflow-draft'
 
@@ -81,6 +81,12 @@ function findParentInList(list: WorkflowNode[], id: string): WorkflowNode | null
   }
   return null
 }
+
+/**
+ * 分支容器保留的最小列数：低于或等于该值再删单列已无意义（条件分支 = 1 条件 + 1 默认），
+ * 此时删除改为整体移除该分支节点，避免留下无法再删的死状态。
+ */
+const MIN_BRANCH_COLUMNS = 2
 
 /** 分支列移动的目标下标：FIRST/LAST 取两端，PREV/NEXT 取相邻一格 */
 function resolveBranchTarget(from: number, length: number, action: BranchMoveAction): number {
@@ -278,21 +284,45 @@ export const useWorkflowStore = defineStore('workflow', () => {
     return branch
   }
 
-  /** 删除分支列：条件分支至少留 1 列、并行节点至少留 2 列，低于下限返回 false（由 UI 提示） */
-  function deleteBranch(id: string): boolean {
+  /**
+   * 判定分支列的删除动作（供 UI 决定确认文案与提示）：
+   * 已达最小规模时删除的是整个分支容器——条件分支返回 BRANCH、并行节点返回 PARALLEL；
+   * 多列形态下默认条件列不可删（NONE），其余列只删自身（COLUMN）。
+   */
+  function resolveBranchDeleteAction(id: string): BranchDeleteAction {
     const container = findParent(doc.value.root, id)
     const branches = container?.conditionNodes
     if (!container || !branches) {
-      return false
+      return 'NONE'
     }
     const idx = branches.findIndex((b) => b.id === id)
-    if (idx < 0 || (branches[idx].props as ConditionProps).isDefault) {
+    if (idx < 0) {
+      return 'NONE'
+    }
+    if (branches.length <= MIN_BRANCH_COLUMNS) {
+      return container.type === NodeType.PARALLEL ? 'PARALLEL' : 'BRANCH'
+    }
+    return (branches[idx].props as ConditionProps).isDefault ? 'NONE' : 'COLUMN'
+  }
+
+  /** 删除分支列；需要时整体删除该分支容器（条件分支 / 并行节点），主干自动接驳 */
+  function deleteBranch(id: string): boolean {
+    const action = resolveBranchDeleteAction(id)
+    if (action === 'NONE') {
       return false
     }
-    const minCount = container.type === NodeType.PARALLEL ? 2 : 1
-    if (branches.length <= minCount) {
+    const container = findParent(doc.value.root, id)
+    if (!container) {
       return false
     }
+    if (action === 'BRANCH' || action === 'PARALLEL') {
+      if (activeNodeId.value === id) {
+        activeNodeId.value = null
+      }
+      return deleteNode(container.id)
+    }
+    const branches = container.conditionNodes ?? []
+    const idx = branches.findIndex((b) => b.id === id)
     branches.splice(idx, 1)
     normalizeBranches(container.type, branches)
     return true
@@ -388,6 +418,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
     updateNode,
     addBranch,
     deleteBranch,
+    resolveBranchDeleteAction,
     moveBranch,
     setActive,
     setZoom,
