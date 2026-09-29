@@ -4,7 +4,6 @@ import { Plus, Delete } from '@element-plus/icons-vue'
 import {
   NodeType,
   type ApproverProps,
-  type CcProps,
   type ConditionProps,
   type ConditionRule,
   type StartProps,
@@ -26,15 +25,14 @@ const drawerTitle = computed(() => TITLE_MAP[props.node?.type ?? ''] ?? '节点�
 const TITLE_MAP: Record<string, string> = {
   [NodeType.START]: '发起人',
   [NodeType.APPROVER]: '审批人',
-  [NodeType.CC]: '抄送人',
   [NodeType.CONDITION]: '条件规则',
+  [NodeType.PARALLEL_BRANCH]: '并行分支',
 }
 
 /** 编辑态：名称 + 属性临时副本（保存时一次性提交） */
 const draftName = ref('')
 const draftStart = ref<StartProps>({ rangeType: 'ALL', memberIds: [] })
 const draftApprover = ref<ApproverProps>({ source: 'MEMBER', memberIds: [], leaderLevel: 1, multiMode: 'OR', emptyPolicy: 'AUTO_PASS', canRejectToStart: false })
-const draftCc = ref<CcProps>({ memberIds: [], enableHandAdd: false })
 const draftCondition = ref<ConditionProps>({ rules: [], isDefault: false })
 
 watch(
@@ -52,9 +50,6 @@ watch(
         break
       case NodeType.APPROVER:
         draftApprover.value = raw as ApproverProps
-        break
-      case NodeType.CC:
-        draftCc.value = raw as CcProps
         break
       case NodeType.CONDITION:
         draftCondition.value = raw as ConditionProps
@@ -76,9 +71,6 @@ function handleSave(): void {
       break
     case NodeType.APPROVER:
       emit('save', props.node.id, deepClone(draftApprover.value), draftName.value)
-      break
-    case NodeType.CC:
-      emit('save', props.node.id, deepClone(draftCc.value), draftName.value)
       break
     case NodeType.CONDITION:
       emit('save', props.node.id, deepClone(draftCondition.value), draftCondition.value.isDefault ? '默认条件' : draftName.value)
@@ -137,7 +129,6 @@ const EMPTY_POLICY_OPTIONS = [
   { value: 'TO_ADMIN', label: '转交管理员' },
 ]
 
-const memberOptions = computed(() => [...MOCK_MEMBERS, ...MOCK_ROLES])
 </script>
 
 <template>
@@ -209,18 +200,6 @@ const memberOptions = computed(() => [...MOCK_MEMBERS, ...MOCK_ROLES])
           </el-form-item>
           <el-form-item label="退回发起">
             <el-switch v-model="draftApprover.canRejectToStart" active-text="允许退回发起人" />
-          </el-form-item>
-        </template>
-
-        <!-- 抄送人 -->
-        <template v-else-if="node.type === NodeType.CC">
-          <el-form-item label="抄送人">
-            <el-select v-model="draftCc.memberIds" multiple filterable placeholder="请选择抄送人" style="width: 100%">
-              <el-option v-for="opt in memberOptions" :key="opt.id" :label="opt.label" :value="opt.id" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="手写抄送">
-            <el-switch v-model="draftCc.enableHandAdd" active-text="允许发起人补充抄送人" />
           </el-form-item>
         </template>
 

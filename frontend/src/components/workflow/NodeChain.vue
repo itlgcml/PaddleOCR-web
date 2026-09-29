@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { ArrowDown, ArrowUp, Close, Plus } from '@element-plus/icons-vue'
-import { NodeType, type ConditionProps, type WorkflowNode } from '@/types/workflow'
+import { isBranchContainer, NodeType, type ConditionProps, type WorkflowNode } from '@/types/workflow'
 import NodeCard from './NodeCard.vue'
 import AddNodeButton from './AddNodeButton.vue'
 
@@ -10,6 +10,12 @@ defineOptions({ inheritAttrs: false })
 const props = defineProps<{ node: WorkflowNode | null; activeId?: string | null }>()
 
 const branches = computed<WorkflowNode[]>(() => props.node?.conditionNodes ?? [])
+
+/** 是否为分支容器（条件分支 / 并行节点）：容器自身不渲染卡片 */
+const isBranch = computed(() => props.node !== null && isBranchContainer(props.node.type))
+
+/** 是否为并行节点：无默认列，加列文案与条件分支区分 */
+const isParallel = computed(() => props.node?.type === NodeType.PARALLEL)
 
 /** 是否默认条件列（固定最右、不可删不可移） */
 function isDefault(branch: WorkflowNode): boolean {
@@ -20,12 +26,12 @@ function isDefault(branch: WorkflowNode): boolean {
 <template>
   <div v-if="node" class="wf-chain">
     <!-- 普通节点：卡片 + 「+」 -->
-    <template v-if="node.type !== NodeType.CONDITIONS">
+    <template v-if="!isBranch">
       <NodeCard :node="node" :active="node.id === activeId" v-bind="$attrs" />
-      <AddNodeButton :parent-id="node.id" v-bind="$attrs" />
+      <AddNodeButton :parent-id="node.id" :parent-type="node.type" v-bind="$attrs" />
     </template>
 
-    <!-- 条件分支容器（自身不渲染卡片）：多列并排，列内子流程 -->
+    <!-- 分支容器（条件分支 / 并行节点，自身不渲染卡片）：多列并排，列内子流程 -->
     <div v-else class="wf-branch">
       <div class="wf-branch-body">
         <div
@@ -57,7 +63,7 @@ function isDefault(branch: WorkflowNode): boolean {
           <div class="wf-branch-col-chain">
             <NodeChain :node="branch.childNode" :active-id="activeId" v-bind="$attrs" />
             <!-- 空列兜底：仅当列内无节点时显示（避免与列内末节点后的「+」重复） -->
-            <AddNodeButton v-if="!branch.childNode" :parent-id="branch.id" v-bind="$attrs" />
+            <AddNodeButton v-if="!branch.childNode" :parent-id="branch.id" :parent-type="branch.type" v-bind="$attrs" />
           </div>
           <!-- 列底出线：自适应占满剩余高度，保证长短列都延伸到汇合横线 -->
           <span class="wf-branch-col-out" />
@@ -66,13 +72,18 @@ function isDefault(branch: WorkflowNode): boolean {
         </div>
         <button class="wf-branch-add" type="button" @click="$emit('add-branch', node.id)">
           <el-icon :size="12"><Plus /></el-icon>
-          <span>添加条件</span>
+          <span>{{ isParallel ? '添加并行分支' : '添加条件' }}</span>
         </button>
       </div>
     </div>
 
-    <!-- 分支汇合点与主干后继的连线 -->
-    <span v-if="node.type === NodeType.CONDITIONS && node.childNode" class="wf-branch-link" />
+    <!-- 分支汇合点 → 主干后继：与普通节点一致的「+」添加节点入口（引出竖线由按钮自身绘制） -->
+    <AddNodeButton
+      v-if="isBranch"
+      :parent-id="node.id"
+      :parent-type="node.type"
+      v-bind="$attrs"
+    />
 
     <!-- 后继主链（分支容器下方为汇合后的主干） -->
     <NodeChain :node="node.childNode" :active-id="activeId" v-bind="$attrs" />
@@ -151,14 +162,16 @@ function isDefault(branch: WorkflowNode): boolean {
   bottom: 0;
 }
 
-/* 只有多列时端点列才收口；单列保留完整横线 */
-.wf-branch-col.is-first .wf-branch-hr,
-.wf-branch-col.is-first .wf-branch-join {
+/* 只有多列时端点列才收口；单列保留完整横线。
+   必须用直接子级选择器：否则嵌套分支时，外层列的 is-first/is-last
+   会连带命中内层列的 hr/join，使其同时带上 left:50% 与 right:50%（宽度 0）导致横线消失 */
+.wf-branch-col.is-first > .wf-branch-hr,
+.wf-branch-col.is-first > .wf-branch-join {
   left: 50%;
 }
 
-.wf-branch-col.is-last .wf-branch-hr,
-.wf-branch-col.is-last .wf-branch-join {
+.wf-branch-col.is-last > .wf-branch-hr,
+.wf-branch-col.is-last > .wf-branch-join {
   right: 50%;
 }
 
@@ -255,16 +268,6 @@ function isDefault(branch: WorkflowNode): boolean {
   flex-shrink: 0;
   width: 2px;
   height: 20px;
-  background: #dedfdf;
-}
-
-/* 分支汇合后引出到主干的竖线（连线层 z-index 0） */
-.wf-branch-link {
-  position: relative;
-  z-index: 0;
-  flex-shrink: 0;
-  width: 2px;
-  height: 24px;
   background: #dedfdf;
 }
 

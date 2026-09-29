@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
-import { NodeType } from '@/types/workflow'
+import { isBranchContainer, isBranchNode, NodeType } from '@/types/workflow'
 import { useWorkflowStore } from '@/stores/workflow'
 
-const props = defineProps<{ parentId: string }>()
+const props = defineProps<{ parentId: string; parentType: NodeType }>()
 
 const emit = defineEmits<{ (e: 'add', parentId: string, type: NodeType): void }>()
 
@@ -15,9 +15,16 @@ const visible = computed(() => store.addMenuId === props.parentId)
 
 const MENU: { type: NodeType; label: string; color: string }[] = [
   { type: NodeType.APPROVER, label: '审批人', color: '#FF9438' },
-  { type: NodeType.CC, label: '抄送人', color: '#33B9AC' },
   { type: NodeType.CONDITIONS, label: '条件分支', color: '#8A94E6' },
+  { type: NodeType.PARALLEL, label: '并行节点', color: '#7C6BFF' },
 ]
+
+/** 分支节点（分支容器 / 分支列）之下必须先接普通节点，故不提供分支类选项 */
+const menuItems = computed(() => (
+  isBranchNode(props.parentType)
+    ? MENU.filter((item) => !isBranchContainer(item.type))
+    : MENU
+))
 
 function toggle(): void {
   if (visible.value) {
@@ -49,7 +56,7 @@ function pick(type: NodeType): void {
       <!-- 菜单内部阻止 pointerdown 冒泡，避免点击项时先被画布关闭 -->
       <div class="wf-add-menu" @pointerdown.stop @click.stop>
         <button
-          v-for="item in MENU"
+          v-for="item in menuItems"
           :key="item.type"
           class="wf-add-item"
           type="button"

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import { NodeType, type NodeProps, type WorkflowNode } from '@/types/workflow'
+import { isBranchContainer, NodeType, type NodeProps, type WorkflowNode } from '@/types/workflow'
 import { useWorkflowStore } from '@/stores/workflow'
 import { useWorkflowValidate } from '@/composables/useWorkflowValidate'
 import WorkflowToolbar from '@/components/workflow/WorkflowToolbar.vue'
@@ -32,8 +32,8 @@ function onAdd(parentId: string, type: NodeType): void {
     ElMessage.error('添加失败')
     return
   }
-  // 条件分支：容器无属性表单，直接呈现双列，不弹任何面板
-  if (type === NodeType.CONDITIONS) {
+  // 分支容器（条件分支 / 并行节点）：容器无属性表单，直接呈现多列，不弹任何面板
+  if (isBranchContainer(type)) {
     return
   }
   onOpen(node)
@@ -58,7 +58,7 @@ async function onRemove(id: string): Promise<void> {
 }
 
 async function onAddBranch(containerId: string): Promise<void> {
-  const branch = store.addConditionBranch(containerId)
+  const branch = store.addBranch(containerId)
   if (!branch) {
     ElMessage.error('添加分支失败')
     return
@@ -72,13 +72,13 @@ async function onDelBranch(id: string): Promise<void> {
   } catch {
     return
   }
-  if (!store.deleteConditionBranch(id)) {
-    ElMessage.warning('默认条件列不可删除；仅剩最后一列时不可删除')
+  if (!store.deleteBranch(id)) {
+    ElMessage.warning('该分支不可删除：默认条件列，或分支数量已达下限')
   }
 }
 
 function onMoveBranch(id: string, dir: -1 | 1): void {
-  store.moveConditionBranch(id, dir)
+  store.moveBranch(id, dir)
 }
 
 function onDrawerSave(id: string, nodeProps: unknown, name: string): void {

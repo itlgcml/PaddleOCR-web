@@ -2,9 +2,12 @@
 export enum NodeType {
   START = 'START',
   APPROVER = 'APPROVER',
-  CC = 'CC',
   CONDITIONS = 'CONDITIONS',
   CONDITION = 'CONDITION',
+  /** 并行节点：多分支列同时执行，无默认列 */
+  PARALLEL = 'PARALLEL',
+  /** 并行节点下的分支列 */
+  PARALLEL_BRANCH = 'PARALLEL_BRANCH',
   TRANSACT = 'TRANSACT',
 }
 
@@ -52,19 +55,13 @@ export interface ApproverProps {
   canRejectToStart: boolean
 }
 
-/** 抄送节点属性 */
-export interface CcProps {
-  memberIds: string[]
-  enableHandAdd: boolean
-}
-
 /** 条件分支列属性 */
 export interface ConditionProps {
   rules: ConditionRule[]
   isDefault: boolean
 }
 
-export type NodeProps = StartProps | ApproverProps | CcProps | ConditionProps | Record<string, never>
+export type NodeProps = StartProps | ApproverProps | ConditionProps | Record<string, never>
 
 /** 流程节点（递归结构：主干 childNode 串联，分支 conditionNodes 横向展开） */
 export interface WorkflowNode {
@@ -103,11 +100,21 @@ export function createNodeProps(type: NodeType): NodeProps {
         emptyPolicy: 'AUTO_PASS',
         canRejectToStart: false,
       }
-    case NodeType.CC:
-      return { memberIds: [], enableHandAdd: false }
     case NodeType.CONDITION:
       return { rules: [], isDefault: false }
     default:
       return {}
   }
+}
+
+/** 是否为分支容器（条件分支 / 并行节点）：两者都以 conditionNodes 横向展开多列 */
+export function isBranchContainer(type: NodeType): boolean {
+  return type === NodeType.CONDITIONS || type === NodeType.PARALLEL
+}
+
+/** 是否为分支节点（分支容器或其分支列）：这类节点之下不允许直接再挂分支容器 */
+export function isBranchNode(type: NodeType): boolean {
+  return isBranchContainer(type)
+    || type === NodeType.CONDITION
+    || type === NodeType.PARALLEL_BRANCH
 }

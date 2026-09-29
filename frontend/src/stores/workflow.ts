@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { deepClone } from '@/utils/clone'
-import { createNodeProps, NodeType, type ConditionProps, type NodeProps, type NodeType as NodeTypeT, type WorkflowDoc, type WorkflowNode } from '@/types/workflow'
+import { createNodeProps, isBranchContainer, NodeType, type ConditionProps, type NodeProps, type NodeType as NodeTypeT, type WorkflowDoc, type WorkflowNode } from '@/types/workflow'
 
 const DRAFT_KEY = 'workflow-draft'
 
@@ -9,9 +9,10 @@ const DRAFT_KEY = 'workflow-draft'
 const DEFAULT_NAMES: Record<string, string> = {
   [NodeType.START]: '发起人',
   [NodeType.APPROVER]: '审批人',
-  [NodeType.CC]: '抄送人',
   [NodeType.CONDITIONS]: '条件分支',
   [NodeType.CONDITION]: '条件',
+  [NodeType.PARALLEL]: '并行节点',
+  [NodeType.PARALLEL_BRANCH]: '并行分支',
   [NodeType.TRANSACT]: '办理人',
 }
 
@@ -93,6 +94,36 @@ function cloneWithNewIds(node: WorkflowNode): WorkflowNode {
   return copy
 }
 
+/** 受支持的节点类型集合：枚举中已移除的旧类型不在其中 */
+const SUPPORTED_NODE_TYPES = new Set<string>(Object.values(NodeType))
+
+/**
+ * 旧草稿兼容：剔除已被移除类型的节点，并把它的后继接驳到父级，避免主链断裂。
+ * 先清理子树再判定自身，这样自身被剔除时可以直接把已清理的后继顶上来。
+ */
+function sanitizeNode(node: WorkflowNode | null): WorkflowNode | null {
+  if (!node) {
+    return null
+  }
+  node.childNode = sanitizeNode(node.childNode)
+  if (node.conditionNodes?.length) {
+    node.conditionNodes = node.conditionNodes.filter((branch) => {
+      if (!SUPPORTED_NODE_TYPES.has(branch.type)) {
+        return false
+      }
+      branch.childNode = sanitizeNode(branch.childNode)
+      return true
+    })
+  }
+  return SUPPORTED_NODE_TYPES.has(node.type) ? node : node.childNode
+}
+
+/** 根节点兜底：整棵树都被剔除时退回一个全新的发起人节点 */
+function sanitizeDoc(doc: WorkflowDoc): WorkflowDoc {
+  doc.root = sanitizeNode(doc.root) ?? createNode(NodeType.START)
+  return doc
+}
+
 function restoreDraft(): WorkflowDoc | null {
   try {
     const raw = localStorage.getItem(DRAFT_KEY)
@@ -101,7 +132,7 @@ function restoreDraft(): WorkflowDoc | null {
     }
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed === 'object' && parsed !== null && 'root' in parsed) {
-      return parsed as WorkflowDoc
+      return sanitizeDoc(parsed as WorkflowDoc)
     }
     return null
   } catch {
@@ -135,6 +166,13 @@ export const useWorkflowStore = defineStore('workflow', () => {
       first.childNode = createNode(NodeType.APPROVER)
       defaultBranch.childNode = createNode(NodeType.APPROVER)
       node.conditionNodes = [first, defaultBranch]
+    } else if (type === NodeType.PARALLEL) {
+      // 并行节点初始形态：固定 2 列（无默认列，两列同时执行），每列预置一个审批节点
+      node.conditionNodes = [1, 2].map((index) => {
+        const branch = createNode(NodeType.PARALLEL_BRANCH, { name: `并行${index}` })
+        branch.childNode = createNode(NodeType.APPROVER)
+        return branch
+      })
     }
     // 统一挂到 parent.childNode 前，原后继接在新节点之后（条件分支容器同理：容器主链为汇合后主干）
     node.childNode = parent.childNode
@@ -193,17 +231,22 @@ export const useWorkflowStore = defineStore('workflow', () => {
     }
   }
 
-  /** 条件分支容器加列：自动编号命名，且插到默认列之前（默认列固定最右） */
-  function addConditionBranch(containerId: string): WorkflowNode | null {
+  /** 分支容器加列：自动编号命名；条件分支插到默认列之前，并行节点追加到末尾 */
+  function addBranch(containerId: string): WorkflowNode | null {
     const container = findNode(doc.value.root, containerId)
-    if (!container || container.type !== NodeType.CONDITIONS) {
+    if (!container || !isBranchContainer(container.type)) {
       return null
     }
     const branches = container.conditionNodes ?? []
+    const parallel = container.type === NodeType.PARALLEL
     const count = branches.filter((b) => !(b.props as ConditionProps).isDefault).length
-    const branch = createNode(NodeType.CONDITION, { name: `条件${count + 1}` })
+    const branch = createNode(
+      parallel ? NodeType.PARALLEL_BRANCH : NodeType.CONDITION,
+      { name: `${parallel ? '并行' : '条件'}${count + 1}` },
+    )
     // 与初始形态保持一致：新列预置一个审批节点，便于直接连线放卡片
     branch.childNode = createNode(NodeType.APPROVER)
+    // 默认列固定最右：条件分支插到默认列之前；并行节点无默认列，直接尾插
     const defaultIdx = branches.findIndex((b) => (b.props as ConditionProps).isDefault)
     if (defaultIdx >= 0) {
       branches.splice(defaultIdx, 0, branch)
@@ -214,23 +257,27 @@ export const useWorkflowStore = defineStore('workflow', () => {
     return branch
   }
 
-  /** 删除分支列；仅剩 1 列时返回 false（由 UI 提示） */
-  function deleteConditionBranch(id: string): boolean {
+  /** 删除分支列：条件分支至少留 1 列、并行节点至少留 2 列，低于下限返回 false（由 UI 提示） */
+  function deleteBranch(id: string): boolean {
     const container = findParent(doc.value.root, id)
     const branches = container?.conditionNodes
-    if (!container || !branches || branches.length <= 1) {
+    if (!container || !branches) {
       return false
     }
     const idx = branches.findIndex((b) => b.id === id)
     if (idx < 0 || (branches[idx].props as ConditionProps).isDefault) {
       return false
     }
+    const minCount = container.type === NodeType.PARALLEL ? 2 : 1
+    if (branches.length <= minCount) {
+      return false
+    }
     branches.splice(idx, 1)
     return true
   }
 
-  /** 调整分支列优先级（与相邻列交换；默认列固定最右不参与） */
-  function moveConditionBranch(id: string, dir: -1 | 1): boolean {
+  /** 调整分支列顺序（与相邻列交换；默认列固定最右不参与） */
+  function moveBranch(id: string, dir: -1 | 1): boolean {
     const container = findParent(doc.value.root, id)
     const branches = container?.conditionNodes
     if (!branches) {
@@ -287,7 +334,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
       if (!candidate.root || candidate.root.type !== NodeType.START) {
         return false
       }
-      doc.value = candidate
+      doc.value = sanitizeDoc(candidate)
       activeNodeId.value = null
       return true
     } catch {
@@ -318,9 +365,9 @@ export const useWorkflowStore = defineStore('workflow', () => {
     deleteNode,
     copyNode,
     updateNode,
-    addConditionBranch,
-    deleteConditionBranch,
-    moveConditionBranch,
+    addBranch,
+    deleteBranch,
+    moveBranch,
     setActive,
     setZoom,
     openAddMenu,

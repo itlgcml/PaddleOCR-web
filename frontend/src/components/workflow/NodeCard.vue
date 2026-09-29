@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Avatar, Bell, Close, CopyDocument, EditPen, Share, User } from '@element-plus/icons-vue'
+import { Avatar, Close, CopyDocument, EditPen, Share, User } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
 import { NodeType, type WorkflowNode } from '@/types/workflow'
 import { memberLabel } from './mock'
@@ -16,7 +16,6 @@ const emit = defineEmits<{
 const META: Record<string, { icon: Component; color: string }> = {
   [NodeType.START]: { icon: User, color: '#409EFF' },
   [NodeType.APPROVER]: { icon: Avatar, color: '#FF9438' },
-  [NodeType.CC]: { icon: Bell, color: '#33B9AC' },
   [NodeType.CONDITION]: { icon: Share, color: '#8A94E6' },
   [NodeType.CONDITIONS]: { icon: Share, color: '#8A94E6' },
   [NodeType.TRANSACT]: { icon: EditPen, color: '#6C7CFF' },
@@ -46,10 +45,6 @@ const description = computed<string>(() => {
         return '发起人自选'
       }
       return appr.memberIds.length > 0 ? appr.memberIds.map(memberLabel).join('、') : '请设置审批人'
-    }
-    case NodeType.CC: {
-      const cc = p as { memberIds: string[] }
-      return cc.memberIds.length > 0 ? cc.memberIds.map(memberLabel).join('、') : '请设置抄送人'
     }
     case NodeType.CONDITION: {
       const cond = p as { rules: { fieldName: string; operator: string; value: string }[]; isDefault: boolean }
