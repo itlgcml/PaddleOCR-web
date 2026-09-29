@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
-import { isBranchContainer, NodeType, type NodeProps, type WorkflowNode } from '@/types/workflow'
+import { isBranchContainer, NodeType, type BranchMoveAction, type NodeProps, type WorkflowNode } from '@/types/workflow'
 import { useWorkflowStore } from '@/stores/workflow'
 import { useWorkflowValidate } from '@/composables/useWorkflowValidate'
 import WorkflowToolbar from '@/components/workflow/WorkflowToolbar.vue'
@@ -77,8 +77,8 @@ async function onDelBranch(id: string): Promise<void> {
   }
 }
 
-function onMoveBranch(id: string, dir: -1 | 1): void {
-  store.moveBranch(id, dir)
+function onMoveBranch(id: string, action: BranchMoveAction): void {
+  store.moveBranch(id, action)
 }
 
 function onDrawerSave(id: string, nodeProps: unknown, name: string): void {

@@ -61,6 +61,9 @@ export interface ConditionProps {
   isDefault: boolean
 }
 
+/** 分支列移动动作：移到最左 / 左移一级 / 右移一级 / 移到最右 */
+export type BranchMoveAction = 'FIRST' | 'PREV' | 'NEXT' | 'LAST'
+
 export type NodeProps = StartProps | ApproverProps | ConditionProps | Record<string, never>
 
 /** 流程节点（递归结构：主干 childNode 串联，分支 conditionNodes 横向展开） */

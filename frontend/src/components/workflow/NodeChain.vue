@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ArrowDown, ArrowUp, Close, Plus } from '@element-plus/icons-vue'
-import { isBranchContainer, NodeType, type ConditionProps, type WorkflowNode } from '@/types/workflow'
+import { ArrowLeft, ArrowRight, Close, DArrowLeft, DArrowRight, Plus } from '@element-plus/icons-vue'
+import { isBranchContainer, NodeType, type BranchMoveAction, type ConditionProps, type WorkflowNode } from '@/types/workflow'
 import NodeCard from './NodeCard.vue'
 import AddNodeButton from './AddNodeButton.vue'
 
@@ -17,9 +17,25 @@ const isBranch = computed(() => props.node !== null && isBranchContainer(props.n
 /** 是否为并行节点：无默认列，加列文案与条件分支区分 */
 const isParallel = computed(() => props.node?.type === NodeType.PARALLEL)
 
-/** 是否默认条件列（固定最右、不可删不可移） */
+/** 是否默认条件列（固定最右、不可删除） */
 function isDefault(branch: WorkflowNode): boolean {
   return (branch.props as ConditionProps).isDefault === true
+}
+
+/** 移动按钮可用性：纯按位置摆放，首列不可再左移、末列不可再右移 */
+function canMove(idx: number, action: BranchMoveAction): boolean {
+  if (action === 'FIRST' || action === 'PREV') {
+    return idx > 0
+  }
+  return idx < branches.value.length - 1
+}
+
+/** 删除按钮可用性：默认列不可删；条件分支至少留 1 列、并行节点至少留 2 列 */
+function canDelete(branch: WorkflowNode): boolean {
+  if (isDefault(branch)) {
+    return false
+  }
+  return branches.value.length > (isParallel.value ? 2 : 1)
 }
 </script>
 
@@ -43,20 +59,37 @@ function isDefault(branch: WorkflowNode): boolean {
           <!-- 分流横线段：位于条件头上方，首/末列收口到自身列中心 -->
           <span class="wf-branch-hr" />
           <div class="wf-cond-head" v-bind="$attrs" @click="$emit('open', branch)">
+            <el-icon
+              class="wf-cond-action"
+              :class="{ 'is-disabled': !canMove(idx, 'FIRST') }"
+              title="移动到最左"
+              @click.stop="canMove(idx, 'FIRST') && $emit('move-branch', branch.id, 'FIRST')"
+            ><DArrowLeft /></el-icon>
+            <el-icon
+              class="wf-cond-action"
+              :class="{ 'is-disabled': !canMove(idx, 'PREV') }"
+              title="左移一级"
+              @click.stop="canMove(idx, 'PREV') && $emit('move-branch', branch.id, 'PREV')"
+            ><ArrowLeft /></el-icon>
             <span class="wf-cond-title">{{ branch.name }}</span>
-            <span v-if="!isDefault(branch)" class="wf-cond-actions">
-              <el-icon
-                v-if="idx > 0"
-                title="优先级上移"
-                @click.stop="$emit('move-branch', branch.id, -1)"
-              ><ArrowUp /></el-icon>
-              <el-icon
-                v-if="idx < branches.length - 1"
-                title="优先级下移"
-                @click.stop="$emit('move-branch', branch.id, 1)"
-              ><ArrowDown /></el-icon>
-              <el-icon title="删除分支" @click.stop="$emit('del-branch', branch.id)"><Close /></el-icon>
-            </span>
+            <el-icon
+              class="wf-cond-action"
+              :class="{ 'is-disabled': !canMove(idx, 'NEXT') }"
+              title="右移一级"
+              @click.stop="canMove(idx, 'NEXT') && $emit('move-branch', branch.id, 'NEXT')"
+            ><ArrowRight /></el-icon>
+            <el-icon
+              class="wf-cond-action"
+              :class="{ 'is-disabled': !canMove(idx, 'LAST') }"
+              title="移动到最右"
+              @click.stop="canMove(idx, 'LAST') && $emit('move-branch', branch.id, 'LAST')"
+            ><DArrowRight /></el-icon>
+            <el-icon
+              class="wf-cond-action"
+              :class="{ 'is-disabled': !canDelete(branch) }"
+              title="删除分支"
+              @click.stop="canDelete(branch) && $emit('del-branch', branch.id)"
+            ><Close /></el-icon>
           </div>
           <!-- 条件头引出到列内首节点的连线 -->
           <span class="wf-cond-link" />
@@ -233,26 +266,38 @@ function isDefault(branch: WorkflowNode): boolean {
 }
 
 .wf-cond-title {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   font-size: 13px;
   font-weight: 600;
   color: #8a94e6;
+  text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.wf-cond-actions {
+/* 列头操作按钮：默认隐藏，鼠标悬浮列头时才出现；不可用时置灰且不响应点击 */
+.wf-cond-action {
   display: none;
   flex-shrink: 0;
+  font-size: 12px;
   color: #909399;
+  cursor: pointer;
 }
 
-.wf-cond-head:hover .wf-cond-actions {
+.wf-cond-head:hover .wf-cond-action {
   display: inline-flex;
 }
 
-.wf-cond-actions .el-icon:hover {
+.wf-cond-action:hover {
   color: #409eff;
+}
+
+.wf-cond-action.is-disabled,
+.wf-cond-action.is-disabled:hover {
+  color: #d4d7de;
+  cursor: not-allowed;
 }
 
 .wf-branch-col-chain {

@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { deepClone } from '@/utils/clone'
-import { createNodeProps, isBranchContainer, NodeType, type ConditionProps, type NodeProps, type NodeType as NodeTypeT, type WorkflowDoc, type WorkflowNode } from '@/types/workflow'
+import { createNodeProps, isBranchContainer, NodeType, type BranchMoveAction, type ConditionProps, type NodeProps, type NodeType as NodeTypeT, type WorkflowDoc, type WorkflowNode } from '@/types/workflow'
 
 const DRAFT_KEY = 'workflow-draft'
 
@@ -82,20 +82,28 @@ function findParentInList(list: WorkflowNode[], id: string): WorkflowNode | null
   return null
 }
 
-/** 取容器内尚未占用的「条件n」编号（从 1 起，跳过已被占用的编号） */
-function nextConditionIndex(branches: WorkflowNode[]): number {
-  const used = new Set<number>()
-  for (const branch of branches) {
-    const matched = /^条件(\d+)$/.exec(branch.name)
-    if (matched) {
-      used.add(Number(matched[1]))
-    }
+/** 分支列移动的目标下标：FIRST/LAST 取两端，PREV/NEXT 取相邻一格 */
+function resolveBranchTarget(from: number, length: number, action: BranchMoveAction): number {
+  if (action === 'FIRST') {
+    return 0
   }
-  let index = 1
-  while (used.has(index)) {
-    index += 1
+  if (action === 'LAST') {
+    return length - 1
   }
-  return index
+  return action === 'PREV' ? from - 1 : from + 1
+}
+
+/**
+ * 纯按位置重建分支列的名称与默认身份：条件分支末列为「默认条件」、其余依次为 条件1..条件n；
+ * 并行节点无默认列，全部依次为 并行1..并行n。任何增删/移动后都调用，会覆盖自定义名称。
+ */
+function normalizeBranches(containerType: NodeTypeT, branches: WorkflowNode[]): void {
+  const parallel = containerType === NodeType.PARALLEL
+  branches.forEach((branch, index) => {
+    const isDefaultBranch = !parallel && index === branches.length - 1
+    ;(branch.props as ConditionProps).isDefault = isDefaultBranch
+    branch.name = isDefaultBranch ? '默认条件' : `${parallel ? '并行' : '条件'}${index + 1}`
+  })
 }
 
 /** 深拷贝子树并重新生成全部 id */
@@ -247,7 +255,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
     }
   }
 
-  /** 分支容器加列：自动编号命名；条件分支插到默认列之前，并行节点追加到末尾 */
+  /** 分支容器加列：插入到默认列之前（默认列固定最右），随后按位置重建编号 */
   function addBranch(containerId: string): WorkflowNode | null {
     const container = findNode(doc.value.root, containerId)
     if (!container || !isBranchContainer(container.type)) {
@@ -255,11 +263,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
     }
     const branches = container.conditionNodes ?? []
     const parallel = container.type === NodeType.PARALLEL
-    const count = branches.filter((b) => !(b.props as ConditionProps).isDefault).length
-    const branch = createNode(
-      parallel ? NodeType.PARALLEL_BRANCH : NodeType.CONDITION,
-      { name: `${parallel ? '并行' : '条件'}${count + 1}` },
-    )
+    const branch = createNode(parallel ? NodeType.PARALLEL_BRANCH : NodeType.CONDITION)
     // 与初始形态保持一致：新列预置一个审批节点，便于直接连线放卡片
     branch.childNode = createNode(NodeType.APPROVER)
     // 默认列固定最右：条件分支插到默认列之前；并行节点无默认列，直接尾插
@@ -270,6 +274,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
       branches.push(branch)
     }
     container.conditionNodes = [...branches]
+    normalizeBranches(container.type, container.conditionNodes)
     return branch
   }
 
@@ -289,41 +294,28 @@ export const useWorkflowStore = defineStore('workflow', () => {
       return false
     }
     branches.splice(idx, 1)
+    normalizeBranches(container.type, branches)
     return true
   }
 
-  /** 调整分支列顺序：与相邻列交换；右侧紧邻默认列时，两列互换位置并转让默认身份 */
-  function moveBranch(id: string, dir: -1 | 1): boolean {
+  /** 调整分支列位置：按目标位置重排后统一重建默认身份与编号（默认列恒在最右） */
+  function moveBranch(id: string, action: BranchMoveAction): boolean {
     const container = findParent(doc.value.root, id)
     const branches = container?.conditionNodes
-    if (!branches) {
+    if (!container || !branches) {
       return false
     }
-    const idx = branches.findIndex((b) => b.id === id)
-    const target = idx + dir
-    // 默认列自身不参与排序
-    if (
-      idx < 0
-      || target < 0
-      || target >= branches.length
-      || (branches[idx].props as ConditionProps).isDefault
-    ) {
+    const from = branches.findIndex((b) => b.id === id)
+    if (from < 0) {
       return false
     }
-    const neighbor = branches[target]
-    if ((neighbor.props as ConditionProps).isDefault) {
-      // 默认列固定最右：整列互换位置，默认身份随「落到末尾」的那一列转移
-      const moving = branches[idx]
-      branches[target] = moving
-      branches[idx] = neighbor
-      ;(moving.props as ConditionProps).isDefault = true
-      moving.name = '默认条件'
-      // 原默认列降级为普通条件列，取容器内未占用的编号重建名称（其规则需重新配置）
-      ;(neighbor.props as ConditionProps).isDefault = false
-      neighbor.name = `条件${nextConditionIndex(branches.filter((b) => b.id !== neighbor.id))}`
-      return true
+    const target = resolveBranchTarget(from, branches.length, action)
+    if (target < 0 || target >= branches.length || target === from) {
+      return false
     }
-    ;[branches[idx], branches[target]] = [branches[target], branches[idx]]
+    const [moved] = branches.splice(from, 1)
+    branches.splice(target, 0, moved)
+    normalizeBranches(container.type, branches)
     return true
   }
 
