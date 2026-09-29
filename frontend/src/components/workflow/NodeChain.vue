@@ -28,8 +28,13 @@ function isDefault(branch: WorkflowNode): boolean {
     <!-- 条件分支容器（自身不渲染卡片）：多列并排，列内子流程 -->
     <div v-else class="wf-branch">
       <div class="wf-branch-body">
-        <div v-for="(branch, idx) in branches" :key="branch.id" class="wf-branch-col">
-          <!-- 分流横线：横跨各列中心，位于条件头上方 -->
+        <div
+          v-for="(branch, idx) in branches"
+          :key="branch.id"
+          class="wf-branch-col"
+          :class="{ 'is-first': idx === 0 && branches.length > 1, 'is-last': idx === branches.length - 1 && branches.length > 1 }"
+        >
+          <!-- 分流横线段：位于条件头上方，首/末列收口到自身列中心 -->
           <span class="wf-branch-hr" />
           <div class="wf-cond-head" v-bind="$attrs" @click="$emit('open', branch)">
             <span class="wf-cond-title">{{ branch.name }}</span>
@@ -54,6 +59,10 @@ function isDefault(branch: WorkflowNode): boolean {
             <!-- 空列兜底：仅当列内无节点时显示（避免与列内末节点后的「+」重复） -->
             <AddNodeButton v-if="!branch.childNode" :parent-id="branch.id" v-bind="$attrs" />
           </div>
+          <!-- 列底出线：自适应占满剩余高度，保证长短列都延伸到汇合横线 -->
+          <span class="wf-branch-col-out" />
+          <!-- 汇合横线段：贴列容器底部，首/末列收口到自身列中心 -->
+          <span class="wf-branch-join" />
         </div>
         <button class="wf-branch-add" type="button" @click="$emit('add-branch', node.id)">
           <el-icon :size="12"><Plus /></el-icon>
@@ -83,13 +92,30 @@ function isDefault(branch: WorkflowNode): boolean {
   display: flex;
 }
 
+/* 上内边距 68 = 入口竖线 44 + 列进线 24（横线所在高度即两者的交点）；
+   其中 44 里预留给「添加条件」按钮的高度，避免按钮压住横线 */
 .wf-branch-body {
   position: relative;
   display: flex;
-  padding: 40px 0 20px;
+  /* 按内容自然宽度布局：嵌套分支时避免列被父级压缩导致横线缩短甚至不可见 */
+  width: max-content;
+  padding: 68px 0 20px;
 }
 
-/* 出口：居中汇流竖线（入口线由上一节点「+」的连线延伸至分流横线） */
+/* 入口：自上一节点引下的居中竖线，补齐到分流横线（横线位于 body 内 44px 处） */
+.wf-branch-body::before {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  left: 50%;
+  width: 2px;
+  height: 44px;
+  margin-left: -1px;
+  background: #dedfdf;
+  content: '';
+}
+
+/* 出口：自汇合横线中点向下引出到下一节点的汇流竖线 */
 .wf-branch-body::after {
   position: absolute;
   z-index: 0;
@@ -102,51 +128,70 @@ function isDefault(branch: WorkflowNode): boolean {
   content: '';
 }
 
-/* 分流横线：与上一节点「+」按钮中心等高（按钮压在横线上） */
-.wf-branch-hr {
+/* 分流/汇合横线段：各列自绘一段，相邻列在列间 padding 处首尾相接；
+   端点列收口到自身列中心 —— 50% 与列内竖线（::before/col-out 的 left:50%）同一基准，
+   端点必然与竖线对齐，不依赖任何 JS 测量，也不会超出分支两端 */
+.wf-branch-hr,
+.wf-branch-join {
   position: absolute;
-  top: -24px;
+  z-index: 0;
   right: 0;
   left: 0;
-  z-index: 0;
   height: 2px;
   background: #dedfdf;
 }
 
-.wf-branch-col:first-child .wf-branch-hr {
+/* 分流横线段：位于列内容顶上方 24px（= body 上内边距 68px 的下半段） */
+.wf-branch-hr {
+  top: -24px;
+}
+
+/* 汇合横线段：贴列容器底部 */
+.wf-branch-join {
+  bottom: 0;
+}
+
+/* 只有多列时端点列才收口；单列保留完整横线 */
+.wf-branch-col.is-first .wf-branch-hr,
+.wf-branch-col.is-first .wf-branch-join {
   left: 50%;
 }
 
-.wf-branch-col:last-of-type .wf-branch-hr {
+.wf-branch-col.is-last .wf-branch-hr,
+.wf-branch-col.is-last .wf-branch-join {
   right: 50%;
 }
 
-/* 每个分支列各自的进/出连线（列中心，自横线向下连到条件头） */
-.wf-branch-col::before,
-.wf-branch-col::after {
+/* 分流横线 → 条件头顶端的进线（固定 24px，对应 body 上内边距 68px 的下半段） */
+.wf-branch-col::before {
   position: absolute;
   z-index: 0;
+  top: -24px;
   left: 50%;
   width: 2px;
-  height: 20px;
+  height: 24px;
   margin-left: -1px;
   background: #dedfdf;
   content: '';
 }
 
-/* 自分流横线（容器上方 24px）向下连到条件头 */
-.wf-branch-col::before {
-  top: -24px;
-  height: 64px;
-}
-
-.wf-branch-col::after {
-  bottom: 0;
+/* 列底出线：撑满列剩余高度（列被 flex 拉伸对齐，长短列均连到汇合横线） */
+.wf-branch-col-out {
+  position: relative;
+  z-index: 0;
+  flex: 1 1 auto;
+  width: 2px;
+  min-height: 20px;
+  background: #dedfdf;
 }
 
 .wf-branch-col {
   position: relative;
   display: flex;
+  /* 列宽固定取内容自然宽度：嵌套分支时避免 fit-content 解析不稳定，
+     导致列中心漂移、横线端点错位（此前「缺半条/超出两端」的根因） */
+  width: max-content;
+  flex-shrink: 0;
   flex-direction: column;
   align-items: center;
   padding: 0 24px;
@@ -162,7 +207,6 @@ function isDefault(branch: WorkflowNode): boolean {
   justify-content: center;
   min-width: 180px;
   max-width: 220px;
-  margin: 0 0 8px;
   padding: 6px 10px;
   cursor: pointer;
   background: #ffffff;
@@ -204,13 +248,13 @@ function isDefault(branch: WorkflowNode): boolean {
   align-items: center;
 }
 
-/* 条件头引出到列内首节点的竖线（连线层 z-index 0） */
+/* 条件头引出到列内首节点的竖线（连线层 z-index 0，含条件头原 8px 下外边距，保证不断线） */
 .wf-cond-link {
   position: relative;
   z-index: 0;
   flex-shrink: 0;
   width: 2px;
-  height: 12px;
+  height: 20px;
   background: #dedfdf;
 }
 
@@ -224,11 +268,11 @@ function isDefault(branch: WorkflowNode): boolean {
   background: #dedfdf;
 }
 
-/* 位于「+」按钮正下方、分支列右上侧 */
+/* 位于分流横线正中上方（横向居中，底边距横线 2px，不遮挡横线） */
 .wf-branch-add {
   position: absolute;
-  top: 16px;
-  right: -14px;
+  top: 44px;
+  left: 50%;
   z-index: 2;
   display: inline-flex;
   gap: 2px;
@@ -240,7 +284,7 @@ function isDefault(branch: WorkflowNode): boolean {
   background: #ffffff;
   border: 1px solid #dedfdf;
   border-radius: 10px;
-  transform: translateY(-50%);
+  transform: translate(-50%, calc(-100% - 2px));
 }
 
 .wf-branch-add:hover {

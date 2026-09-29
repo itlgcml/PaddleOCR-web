@@ -202,6 +202,8 @@ export const useWorkflowStore = defineStore('workflow', () => {
     const branches = container.conditionNodes ?? []
     const count = branches.filter((b) => !(b.props as ConditionProps).isDefault).length
     const branch = createNode(NodeType.CONDITION, { name: `条件${count + 1}` })
+    // 与初始形态保持一致：新列预置一个审批节点，便于直接连线放卡片
+    branch.childNode = createNode(NodeType.APPROVER)
     const defaultIdx = branches.findIndex((b) => (b.props as ConditionProps).isDefault)
     if (defaultIdx >= 0) {
       branches.splice(defaultIdx, 0, branch)
