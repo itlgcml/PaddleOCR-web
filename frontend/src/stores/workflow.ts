@@ -82,6 +82,22 @@ function findParentInList(list: WorkflowNode[], id: string): WorkflowNode | null
   return null
 }
 
+/** 取容器内尚未占用的「条件n」编号（从 1 起，跳过已被占用的编号） */
+function nextConditionIndex(branches: WorkflowNode[]): number {
+  const used = new Set<number>()
+  for (const branch of branches) {
+    const matched = /^条件(\d+)$/.exec(branch.name)
+    if (matched) {
+      used.add(Number(matched[1]))
+    }
+  }
+  let index = 1
+  while (used.has(index)) {
+    index += 1
+  }
+  return index
+}
+
 /** 深拷贝子树并重新生成全部 id */
 function cloneWithNewIds(node: WorkflowNode): WorkflowNode {
   const copy: WorkflowNode = { ...node, id: genId(), props: deepClone(node.props), childNode: null }
@@ -276,7 +292,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
     return true
   }
 
-  /** 调整分支列顺序（与相邻列交换；默认列固定最右不参与） */
+  /** 调整分支列顺序：与相邻列交换；右侧紧邻默认列时，两列互换位置并转让默认身份 */
   function moveBranch(id: string, dir: -1 | 1): boolean {
     const container = findParent(doc.value.root, id)
     const branches = container?.conditionNodes
@@ -285,14 +301,27 @@ export const useWorkflowStore = defineStore('workflow', () => {
     }
     const idx = branches.findIndex((b) => b.id === id)
     const target = idx + dir
+    // 默认列自身不参与排序
     if (
       idx < 0
       || target < 0
       || target >= branches.length
       || (branches[idx].props as ConditionProps).isDefault
-      || (branches[target].props as ConditionProps).isDefault
     ) {
       return false
+    }
+    const neighbor = branches[target]
+    if ((neighbor.props as ConditionProps).isDefault) {
+      // 默认列固定最右：整列互换位置，默认身份随「落到末尾」的那一列转移
+      const moving = branches[idx]
+      branches[target] = moving
+      branches[idx] = neighbor
+      ;(moving.props as ConditionProps).isDefault = true
+      moving.name = '默认条件'
+      // 原默认列降级为普通条件列，取容器内未占用的编号重建名称（其规则需重新配置）
+      ;(neighbor.props as ConditionProps).isDefault = false
+      neighbor.name = `条件${nextConditionIndex(branches.filter((b) => b.id !== neighbor.id))}`
+      return true
     }
     ;[branches[idx], branches[target]] = [branches[target], branches[idx]]
     return true
