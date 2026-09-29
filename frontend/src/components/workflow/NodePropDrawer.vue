@@ -10,6 +10,7 @@ import {
   type StartProps,
   type WorkflowNode,
 } from '@/types/workflow'
+import { deepClone } from '@/utils/clone'
 import { MOCK_FIELDS, MOCK_MEMBERS, MOCK_ROLES } from './mock'
 
 const props = defineProps<{ node: WorkflowNode | null }>()
@@ -43,11 +44,24 @@ watch(
       return
     }
     draftName.value = node.name
-    // 深拷贝，避免半成品编辑直接污染画布数据
-    draftStart.value = structuredClone(node.props as StartProps)
-    draftApprover.value = structuredClone(node.props as ApproverProps)
-    draftCc.value = structuredClone(node.props as CcProps)
-    draftCondition.value = structuredClone(node.props as ConditionProps)
+    // 深拷贝，避免半成品编辑直接污染画布数据；只填充当前节点类型对应的一份草稿
+    const raw = deepClone(node.props)
+    switch (node.type) {
+      case NodeType.START:
+        draftStart.value = raw as StartProps
+        break
+      case NodeType.APPROVER:
+        draftApprover.value = raw as ApproverProps
+        break
+      case NodeType.CC:
+        draftCc.value = raw as CcProps
+        break
+      case NodeType.CONDITION:
+        draftCondition.value = raw as ConditionProps
+        break
+      default:
+        break
+    }
   },
   { immediate: true },
 )
@@ -58,19 +72,19 @@ function handleSave(): void {
   }
   switch (props.node.type) {
     case NodeType.START:
-      emit('save', props.node.id, structuredClone(draftStart.value), draftName.value)
+      emit('save', props.node.id, deepClone(draftStart.value), draftName.value)
       break
     case NodeType.APPROVER:
-      emit('save', props.node.id, structuredClone(draftApprover.value), draftName.value)
+      emit('save', props.node.id, deepClone(draftApprover.value), draftName.value)
       break
     case NodeType.CC:
-      emit('save', props.node.id, structuredClone(draftCc.value), draftName.value)
+      emit('save', props.node.id, deepClone(draftCc.value), draftName.value)
       break
     case NodeType.CONDITION:
-      emit('save', props.node.id, structuredClone(draftCondition.value), draftCondition.value.isDefault ? '默认条件' : draftName.value)
+      emit('save', props.node.id, deepClone(draftCondition.value), draftCondition.value.isDefault ? '默认条件' : draftName.value)
       break
     default:
-      emit('save', props.node.id, structuredClone(props.node.props), draftName.value)
+      emit('save', props.node.id, deepClone(props.node.props), draftName.value)
   }
   visible.value = false
 }

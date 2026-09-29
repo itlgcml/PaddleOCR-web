@@ -91,8 +91,10 @@ function operatorLabel(op: string): string {
 </template>
 
 <style scoped>
+/* 实体层：z-index 1，压在连线层（0）之上 */
 .wf-card {
   position: relative;
+  z-index: 1;
   width: 220px;
   padding: 12px;
   cursor: pointer;

@@ -152,7 +152,10 @@ function isDefault(branch: WorkflowNode): boolean {
   padding: 0 24px;
 }
 
+/* 实体层：z-index 1，避免被 muted 的连线（::before/横线）压住 */
 .wf-cond-head {
+  position: relative;
+  z-index: 1;
   display: flex;
   gap: 6px;
   align-items: center;
@@ -201,16 +204,20 @@ function isDefault(branch: WorkflowNode): boolean {
   align-items: center;
 }
 
-/* 条件头引出到列内首节点的竖线 */
+/* 条件头引出到列内首节点的竖线（连线层 z-index 0） */
 .wf-cond-link {
+  position: relative;
+  z-index: 0;
   flex-shrink: 0;
   width: 2px;
   height: 12px;
   background: #dedfdf;
 }
 
-/* 分支汇合后引出到主干的竖线 */
+/* 分支汇合后引出到主干的竖线（连线层 z-index 0） */
 .wf-branch-link {
+  position: relative;
+  z-index: 0;
   flex-shrink: 0;
   width: 2px;
   height: 24px;

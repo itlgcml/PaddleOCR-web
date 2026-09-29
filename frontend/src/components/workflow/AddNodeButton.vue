@@ -44,8 +44,8 @@ function pick(type: NodeType): void {
       <el-icon :size="14"><Plus /></el-icon>
     </button>
     <template v-if="visible">
-      <!-- 透明遮罩：点击浮层外任意区域即关闭 -->
-      <div class="wf-add-mask" @click="store.closeAddMenu()" />
+      <!-- 不加遮罩层：外部点击由画布/页面的 pointerdown 统一关闭；
+           遮罩会抢先拦截 pointerdown 并使随后的 click 穿透到下层按钮，导致菜单被重新 toggle 打开 -->
       <!-- 菜单内部阻止 pointerdown 冒泡，避免点击项时先被画布关闭 -->
       <div class="wf-add-menu" @pointerdown.stop @click.stop>
         <button
@@ -74,9 +74,10 @@ function pick(type: NodeType): void {
   padding: 10px 0;
 }
 
-/* 上下节点间的连接竖线 */
+/* 连线层：z-index 0，置于所有实体（卡片/按钮/菜单）之下 */
 .wf-add-line {
   position: absolute;
+  z-index: 0;
   top: 0;
   bottom: 0;
   left: 50%;
@@ -105,12 +106,6 @@ function pick(type: NodeType): void {
   color: #409eff;
   border-color: #409eff;
   transform: scale(1.1);
-}
-
-.wf-add-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 19;
 }
 
 .wf-add-menu {

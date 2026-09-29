@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
+import { deepClone } from '@/utils/clone'
 import { createNodeProps, NodeType, type ConditionProps, type NodeProps, type NodeType as NodeTypeT, type WorkflowDoc, type WorkflowNode } from '@/types/workflow'
 
 const DRAFT_KEY = 'workflow-draft'
@@ -82,7 +83,7 @@ function findParentInList(list: WorkflowNode[], id: string): WorkflowNode | null
 
 /** 深拷贝子树并重新生成全部 id */
 function cloneWithNewIds(node: WorkflowNode): WorkflowNode {
-  const copy: WorkflowNode = { ...node, id: genId(), props: structuredClone(node.props), childNode: null }
+  const copy: WorkflowNode = { ...node, id: genId(), props: deepClone(node.props), childNode: null }
   if (node.conditionNodes?.length) {
     copy.conditionNodes = node.conditionNodes.map(cloneWithNewIds)
   }
