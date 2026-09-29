@@ -26,7 +26,8 @@ export function useWorkflowValidate(doc: Ref<WorkflowDoc>) {
     }
     if (node.type === NodeType.CONDITION) {
       const p = node.props as ConditionProps
-      if (!p.isDefault && p.rules.length === 0) {
+      const ruleCount = (p.groups ?? []).reduce((total, group) => total + group.rules.length, 0)
+      if (!p.isDefault && ruleCount === 0) {
         list.push({ nodeId: node.id, message: `条件「${node.name}」未配置规则` })
       }
     }

@@ -146,6 +146,21 @@ export interface UserPageVO {
   createTime: string
 }
 
+/** 新增用户（UserCreateDTO，管理端） */
+export interface UserCreateDTO {
+  /** 登录名，4~32 位，^[a-zA-Z0-9_]+$，全库唯一 */
+  username: string
+  /** 初始密码，8~20 位明文，落库前 BCrypt 加密 */
+  password: string
+  /** 缺省时取用户名 */
+  nickname?: string
+  email?: string
+  /** 缺省挂 DEFAULT 默认机构 */
+  orgId?: string
+  /** 缺省绑定默认普通用户角色 USER */
+  roleIds?: string[]
+}
+
 /** 调整所属机构（UserOrgAssignDTO） */
 export interface UserOrgAssignDTO {
   orgId: string

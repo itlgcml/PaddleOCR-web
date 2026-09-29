@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { Avatar, Close, CopyDocument, EditPen, Share, User } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
-import { NodeType, type WorkflowNode } from '@/types/workflow'
+import { NodeType, type ConditionLogic, type ConditionProps, type WorkflowNode } from '@/types/workflow'
 import { memberLabel } from './mock'
 
 const props = defineProps<{ node: WorkflowNode; active?: boolean }>()
@@ -47,18 +47,39 @@ const description = computed<string>(() => {
       return appr.memberIds.length > 0 ? appr.memberIds.map(memberLabel).join('、') : '请设置审批人'
     }
     case NodeType.CONDITION: {
-      const cond = p as { rules: { fieldName: string; operator: string; value: string }[]; isDefault: boolean }
+      const cond = p as ConditionProps
       if (cond.isDefault) {
         return '其余条件均不满足时进入'
       }
-      return cond.rules.length > 0
-        ? cond.rules.map((r) => `${r.fieldName} ${operatorLabel(r.operator)} ${r.value}`).join(' 且 ')
-        : '请设置条件'
+      return summarizeCondition(cond) || '请设置条件'
     }
     default:
       return ''
   }
 })
+
+/** 条件摘要：组内按各条连接符串联，组间按组连接符串联，多规则组加括号 */
+function summarizeCondition(cond: ConditionProps): string {
+  const groups = cond.groups.filter((group) => group.rules.length > 0)
+  return groups
+    .map((group, groupIdx) => {
+      const parts: string[] = []
+      group.rules.forEach((rule, ruleIdx) => {
+        if (ruleIdx > 0) {
+          parts.push(logicLabel(rule.link))
+        }
+        parts.push(`${rule.fieldName} ${operatorLabel(rule.operator)} ${rule.value}`)
+      })
+      const text = parts.join(' ')
+      const wrapped = group.rules.length > 1 ? `（${text}）` : text
+      return groupIdx > 0 ? `${logicLabel(group.link)} ${wrapped}` : wrapped
+    })
+    .join(' ')
+}
+
+function logicLabel(logic: ConditionLogic): string {
+  return logic === 'OR' ? '或' : '且'
+}
 
 function operatorLabel(op: string): string {
   const map: Record<string, string> = {

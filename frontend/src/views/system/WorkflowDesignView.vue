@@ -74,7 +74,7 @@ const BRANCH_DELETE_CONFIRM: Record<Exclude<BranchDeleteAction, 'NONE'>, { title
   },
   BRANCH: {
     title: '删除条件分支节点',
-    message: '该条件分支仅剩「1 个条件 + 1 个默认条件」，删除会连同整个条件分支节点及其内部子流程一并移除，确定吗？',
+    message: '该条件分支仅剩「1 个条件 + 1 个其他条件」，删除会连同整个条件分支节点及其内部子流程一并移除，确定吗？',
   },
   PARALLEL: {
     title: '删除并行节点',
@@ -85,7 +85,7 @@ const BRANCH_DELETE_CONFIRM: Record<Exclude<BranchDeleteAction, 'NONE'>, { title
 async function onDelBranch(id: string): Promise<void> {
   const action = store.resolveBranchDeleteAction(id)
   if (action === 'NONE') {
-    ElMessage.warning('默认条件列不可删除')
+    ElMessage.warning('其他条件列不可删除')
     return
   }
   const { title, message } = BRANCH_DELETE_CONFIRM[action]

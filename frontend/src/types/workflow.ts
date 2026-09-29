@@ -31,12 +31,26 @@ export type ConditionOperator =
   | 'CONTAIN'
   | 'NOT_CONTAIN'
 
+/** 条件逻辑连接符：且 / 或 */
+export type ConditionLogic = 'AND' | 'OR'
+
 /** 单条条件规则 */
 export interface ConditionRule {
   fieldKey: string
   fieldName: string
   operator: ConditionOperator
   value: string
+  /** 与同组上一条规则的连接符；组内首条忽略 */
+  link: ConditionLogic
+}
+
+/** 条件组：组内规则按各自 link 依次串联，组与组之间按组的 link 串联 */
+export interface ConditionGroup {
+  /** 条件组名称（可编辑，默认「组n」） */
+  name: string
+  /** 与上一组的连接符；首个条件组忽略 */
+  link: ConditionLogic
+  rules: ConditionRule[]
 }
 
 /** 发起人节点属性 */
@@ -57,7 +71,8 @@ export interface ApproverProps {
 
 /** 条件分支列属性 */
 export interface ConditionProps {
-  rules: ConditionRule[]
+  /** 多个条件组：组内、组间都可用「且 / 或」组合 */
+  groups: ConditionGroup[]
   isDefault: boolean
 }
 
@@ -107,7 +122,7 @@ export function createNodeProps(type: NodeType): NodeProps {
         canRejectToStart: false,
       }
     case NodeType.CONDITION:
-      return { rules: [], isDefault: false }
+      return { groups: [], isDefault: false }
     default:
       return {}
   }

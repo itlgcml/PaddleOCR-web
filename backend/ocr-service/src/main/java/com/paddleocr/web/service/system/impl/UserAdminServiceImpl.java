@@ -4,6 +4,7 @@ import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.paddleocr.web.PasswordSupport;
 import com.paddleocr.web.common.BusinessException;
 import com.paddleocr.web.common.ResultCode;
 import com.paddleocr.web.mapper.OrgMapper;
@@ -15,10 +16,12 @@ import com.paddleocr.web.mapper.entity.RoleDO;
 import com.paddleocr.web.mapper.entity.UserDO;
 import com.paddleocr.web.mapper.entity.UserRoleDO;
 import com.paddleocr.web.model.PageResultVO;
+import com.paddleocr.web.model.dto.UserCreateDTO;
 import com.paddleocr.web.model.dto.UserPageQuery;
 import com.paddleocr.web.model.vo.OrgBriefVO;
 import com.paddleocr.web.model.vo.RoleBriefVO;
 import com.paddleocr.web.model.vo.UserPageVO;
+import com.paddleocr.web.service.system.OrgService;
 import com.paddleocr.web.service.system.UserAdminService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -55,10 +58,17 @@ public class UserAdminServiceImpl implements UserAdminService {
     /** 启用状态值 */
     private static final int STATUS_ENABLED = 1;
 
+    /** 新增用户缺省机构编码（与注册保持一致） */
+    private static final String DEFAULT_ORG_CODE = "DEFAULT";
+
+    /** 新增用户缺省角色编码（与注册保持一致） */
+    private static final String DEFAULT_ROLE_CODE = "USER";
+
     private final UserMapper userMapper;
     private final OrgMapper orgMapper;
     private final RoleMapper roleMapper;
     private final UserRoleMapper userRoleMapper;
+    private final OrgService orgService;
 
     @Override
     public PageResultVO<UserPageVO> pageUsers(UserPageQuery query) {
@@ -67,9 +77,12 @@ public class UserAdminServiceImpl implements UserAdminService {
                 : Math.min(Math.max(query.getPageSize(), 1), MAX_PAGE_SIZE);
 
         LambdaQueryWrapper<UserDO> wrapper = new LambdaQueryWrapper<UserDO>()
-                .eq(query.getOrgId() != null, UserDO::getOrgId, query.getOrgId())
                 .eq(query.getStatus() != null, UserDO::getStatus, query.getStatus())
                 .orderByDesc(UserDO::getId);
+        if (query.getOrgId() != null) {
+            // 机构过滤含全部子孙机构：机构树点击父级需一并查出下级用户
+            wrapper.in(UserDO::getOrgId, orgService.listSubtreeOrgIds(query.getOrgId()));
+        }
         if (StrUtil.isNotBlank(query.getUsername())) {
             // 用户名/昵称前缀匹配（页面搜索严禁左模糊/全模糊）
             wrapper.and(w -> w.likeRight(UserDO::getUsername, query.getUsername())
@@ -79,6 +92,31 @@ public class UserAdminServiceImpl implements UserAdminService {
         Page<UserDO> page = userMapper.selectPage(new Page<>(pageNum, pageSize), wrapper);
         List<UserPageVO> records = buildUserPageVOList(page.getRecords());
         return buildPageResult(records, page);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public String saveUser(UserCreateDTO dto) {
+        // 用户名唯一性校验（并发兜底靠 DuplicateKeyException → USERNAME_EXISTS）
+        Long sameNameCount = userMapper.selectCount(
+                new LambdaQueryWrapper<UserDO>().eq(UserDO::getUsername, dto.getUsername()));
+        if (sameNameCount != null && sameNameCount > 0L) {
+            throw new BusinessException(ResultCode.USERNAME_EXISTS);
+        }
+
+        UserDO user = new UserDO();
+        user.setOrgId(resolveOrgId(dto.getOrgId()));
+        user.setUsername(dto.getUsername());
+        user.setNickname(StrUtil.isBlank(dto.getNickname()) ? dto.getUsername() : dto.getNickname());
+        user.setEmail(dto.getEmail());
+        user.setPasswordHash(PasswordSupport.encode(dto.getPassword()));
+        user.setStatus(STATUS_ENABLED);
+        user.setFailedAttempts(0);
+        userMapper.insert(user);
+
+        bindRoles(user.getId(), dto.getRoleIds());
+        log.info("新增用户成功, userId={}, username={}", user.getId(), user.getUsername());
+        return String.valueOf(user.getId());
     }
 
     @Override
@@ -110,10 +148,7 @@ public class UserAdminServiceImpl implements UserAdminService {
         // 全量替换：事务内物理 delete + batch insert
         userRoleMapper.delete(new LambdaQueryWrapper<UserRoleDO>().eq(UserRoleDO::getUserId, userId));
         for (Long roleId : distinctRoleIds) {
-            UserRoleDO binding = new UserRoleDO();
-            binding.setUserId(userId);
-            binding.setRoleId(roleId);
-            userRoleMapper.insert(binding);
+            insertUserRole(userId, roleId);
         }
         log.info("用户角色全量替换完成, userId={}, roleIds={}", userId, distinctRoleIds);
     }
@@ -177,6 +212,61 @@ public class UserAdminServiceImpl implements UserAdminService {
                         Collectors.mapping(b -> toRoleBrief(roleById.get(b.getRoleId())),
                                 Collectors.toList())));
         return grouped;
+    }
+
+    /**
+     * 解析新增用户的所属机构：null 取 DEFAULT；非空校验存在且启用
+     */
+    private Long resolveOrgId(Long orgId) {
+        if (orgId == null) {
+            OrgDO defaultOrg = orgMapper.selectOne(
+                    new LambdaQueryWrapper<OrgDO>().eq(OrgDO::getOrgCode, DEFAULT_ORG_CODE));
+            if (defaultOrg == null) {
+                log.error("默认机构 {} 缺失，请检查初始化数据", DEFAULT_ORG_CODE);
+                throw new BusinessException(ResultCode.ORG_NOT_FOUND);
+            }
+            return defaultOrg.getId();
+        }
+        OrgDO org = orgMapper.selectById(orgId);
+        if (org == null || !Integer.valueOf(STATUS_ENABLED).equals(org.getStatus())) {
+            throw new BusinessException(ResultCode.ORG_NOT_FOUND);
+        }
+        return org.getId();
+    }
+
+    /**
+     * 绑定新增用户的角色：缺省绑默认角色 USER；指定则逐个校验存在且启用后绑定（入参去重）
+     */
+    private void bindRoles(Long userId, List<Long> roleIds) {
+        Set<Long> distinctRoleIds = roleIds == null
+                ? Collections.emptySet() : new LinkedHashSet<>(roleIds);
+        if (distinctRoleIds.isEmpty()) {
+            RoleDO defaultRole = roleMapper.selectOne(
+                    new LambdaQueryWrapper<RoleDO>().eq(RoleDO::getRoleCode, DEFAULT_ROLE_CODE));
+            if (defaultRole == null) {
+                log.error("内置角色 {} 缺失，请检查初始化数据", DEFAULT_ROLE_CODE);
+                throw new BusinessException(ResultCode.SYSTEM_ERROR);
+            }
+            insertUserRole(userId, defaultRole.getId());
+            return;
+        }
+        for (Long roleId : distinctRoleIds) {
+            RoleDO role = roleMapper.selectById(roleId);
+            if (role == null || !Integer.valueOf(STATUS_ENABLED).equals(role.getStatus())) {
+                throw new BusinessException(ResultCode.ROLE_NOT_FOUND);
+            }
+            insertUserRole(userId, roleId);
+        }
+    }
+
+    /**
+     * 写入用户-角色绑定关系
+     */
+    private void insertUserRole(Long userId, Long roleId) {
+        UserRoleDO binding = new UserRoleDO();
+        binding.setUserId(userId);
+        binding.setRoleId(roleId);
+        userRoleMapper.insert(binding);
     }
 
     /**

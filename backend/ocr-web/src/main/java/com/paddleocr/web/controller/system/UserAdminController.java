@@ -4,6 +4,7 @@ import com.paddleocr.web.common.ApiResponse;
 import com.paddleocr.web.common.BusinessException;
 import com.paddleocr.web.common.ResultCode;
 import com.paddleocr.web.model.PageResultVO;
+import com.paddleocr.web.model.dto.UserCreateDTO;
 import com.paddleocr.web.model.dto.UserOrgAssignDTO;
 import com.paddleocr.web.model.dto.UserPageQuery;
 import com.paddleocr.web.model.dto.UserRoleAssignDTO;
@@ -19,6 +20,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -57,6 +59,15 @@ public class UserAdminController {
         query.setOrgId(orgId);
         query.setStatus(status);
         return ApiResponse.ok(userAdminService.pageUsers(query));
+    }
+
+    /**
+     * 新增用户（用户名唯一；机构/角色缺省时挂默认机构与默认普通用户角色）
+     */
+    @Operation(summary = "新增用户")
+    @PostMapping("/create")
+    public ApiResponse<String> create(@RequestBody @Validated UserCreateDTO dto) {
+        return ApiResponse.ok(userAdminService.saveUser(dto));
     }
 
     /**

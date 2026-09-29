@@ -5,6 +5,7 @@ import com.paddleocr.web.model.dto.OrgUpdateDTO;
 import com.paddleocr.web.model.vo.OrgTreeVO;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 机构服务（系统设置域）：树查询、增删改、删除保护校验
@@ -20,6 +21,14 @@ public interface OrgService {
      * @return 机构树节点集合，根节点 parentId=0
      */
     List<OrgTreeVO> listTree();
+
+    /**
+     * 查询机构及其全部子孙机构 ID（含自身，按父 ID 逐层收集）
+     *
+     * @param orgId 目标机构 ID
+     * @return 子树机构 ID 集合，至少包含 orgId 本身
+     */
+    Set<Long> listSubtreeOrgIds(Long orgId);
 
     /**
      * 新增机构（校验父机构存在且启用、机构编码唯一）

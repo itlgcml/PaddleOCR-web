@@ -1,6 +1,7 @@
 package com.paddleocr.web.service.system;
 
 import com.paddleocr.web.model.PageResultVO;
+import com.paddleocr.web.model.dto.UserCreateDTO;
 import com.paddleocr.web.model.dto.UserPageQuery;
 import com.paddleocr.web.model.vo.UserPageVO;
 
@@ -21,6 +22,14 @@ public interface UserAdminService {
      * @return 分页结果
      */
     PageResultVO<UserPageVO> pageUsers(UserPageQuery query);
+
+    /**
+     * 新增用户（用户名唯一校验；机构缺省挂 DEFAULT；角色缺省绑默认普通用户角色 USER）
+     *
+     * @param dto 新增用户请求
+     * @return 新用户 ID（字符串形式）
+     */
+    String saveUser(UserCreateDTO dto);
 
     /**
      * 调整用户所属机构（目标机构须存在且启用）

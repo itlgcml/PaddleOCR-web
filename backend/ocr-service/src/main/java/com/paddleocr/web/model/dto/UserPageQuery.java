@@ -26,7 +26,7 @@ public class UserPageQuery implements Serializable {
     @Schema(description = "用户名/昵称前缀匹配")
     private String username;
 
-    @Schema(description = "按机构精确过滤（V1 仅本级）")
+    @Schema(description = "按机构过滤（含本级及全部子孙机构）")
     private Long orgId;
 
     @Schema(description = "状态过滤：1=启用 0=禁用")

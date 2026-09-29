@@ -1,13 +1,19 @@
 /** 用户管理接口（/api/users/**，ADMIN） */
 import request from '@/api/request'
 import type { PageQuery, PageResult } from '@/types/api'
-import type { UserOrgAssignDTO, UserPageVO, UserRoleAssignDTO, UserStatusDTO } from '@/types/auth'
+import type {
+  UserCreateDTO,
+  UserOrgAssignDTO,
+  UserPageVO,
+  UserRoleAssignDTO,
+  UserStatusDTO,
+} from '@/types/auth'
 
 /** 用户分页查询参数 */
 export interface UserPageQuery extends PageQuery {
   /** 用户名/昵称模糊匹配 */
   username?: string
-  /** 按机构精确过滤 */
+  /** 按机构过滤（含本级及全部子孙机构） */
   orgId?: string
   /** 1=启用 0=禁用 */
   status?: number
@@ -16,6 +22,11 @@ export interface UserPageQuery extends PageQuery {
 /** 用户分页查询 */
 export function fetchUserPage(params: UserPageQuery): Promise<PageResult<UserPageVO>> {
   return request.get<unknown, PageResult<UserPageVO>>('/users/page', { params })
+}
+
+/** 新增用户（返回新用户 id；用户名唯一，机构/角色缺省时挂默认机构与默认普通用户角色） */
+export function submitUserCreate(data: UserCreateDTO): Promise<string> {
+  return request.post<unknown, string>('/users/create', data)
 }
 
 /** 调整用户所属机构（目标机构须存在且启用） */

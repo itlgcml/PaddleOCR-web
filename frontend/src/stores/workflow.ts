@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { deepClone } from '@/utils/clone'
-import { createNodeProps, isBranchContainer, NodeType, type BranchDeleteAction, type BranchMoveAction, type ConditionProps, type NodeProps, type NodeType as NodeTypeT, type WorkflowDoc, type WorkflowNode } from '@/types/workflow'
+import { createNodeProps, isBranchContainer, NodeType, type BranchDeleteAction, type BranchMoveAction, type ConditionLogic, type ConditionProps, type ConditionRule, type NodeProps, type NodeType as NodeTypeT, type WorkflowDoc, type WorkflowNode } from '@/types/workflow'
 
 const DRAFT_KEY = 'workflow-draft'
 
@@ -100,7 +100,7 @@ function resolveBranchTarget(from: number, length: number, action: BranchMoveAct
 }
 
 /**
- * 纯按位置重建分支列的名称与默认身份：条件分支末列为「默认条件」、其余依次为 条件1..条件n；
+ * 纯按位置重建分支列的名称与默认身份：条件分支末列为「其他条件」、其余依次为 条件1..条件n；
  * 并行节点无默认列，全部依次为 并行1..并行n。任何增删/移动后都调用，会覆盖自定义名称。
  */
 function normalizeBranches(containerType: NodeTypeT, branches: WorkflowNode[]): void {
@@ -108,7 +108,7 @@ function normalizeBranches(containerType: NodeTypeT, branches: WorkflowNode[]): 
   branches.forEach((branch, index) => {
     const isDefaultBranch = !parallel && index === branches.length - 1
     ;(branch.props as ConditionProps).isDefault = isDefaultBranch
-    branch.name = isDefaultBranch ? '默认条件' : `${parallel ? '并行' : '条件'}${index + 1}`
+    branch.name = isDefaultBranch ? '其他条件' : `${parallel ? '并行' : '条件'}${index + 1}`
   })
 }
 
@@ -127,6 +127,49 @@ function cloneWithNewIds(node: WorkflowNode): WorkflowNode {
 /** 受支持的节点类型集合：枚举中已移除的旧类型不在其中 */
 const SUPPORTED_NODE_TYPES = new Set<string>(Object.values(NodeType))
 
+/** 旧草稿里的条件结构：单层 rules；link 为后加字段，旧数据可能缺失 */
+interface LegacyConditionRule {
+  fieldKey: string
+  fieldName: string
+  operator: ConditionRule['operator']
+  value: string
+  link?: ConditionLogic
+}
+
+interface LegacyConditionGroup {
+  name?: string
+  link?: ConditionLogic
+  rules: LegacyConditionRule[]
+}
+
+interface LegacyConditionProps {
+  rules?: LegacyConditionRule[]
+  groups?: LegacyConditionGroup[]
+  isDefault?: boolean
+}
+
+/**
+ * 旧草稿兼容：条件属性由「单层 rules」升级为「条件组 groups」。
+ * 旧数据整体迁移为一个条件组，并补齐缺失的组名与连接符（默认「组1」/「且」）。
+ */
+function migrateConditionProps(node: WorkflowNode): void {
+  const legacy = node.props as LegacyConditionProps
+  const normalizeRule = (rule: LegacyConditionRule): ConditionRule => ({ ...rule, link: rule.link ?? 'AND' })
+  if (legacy.groups) {
+    node.props = {
+      groups: legacy.groups.map((group, index) => ({
+        name: group.name ?? `组${index + 1}`,
+        link: group.link ?? 'AND',
+        rules: group.rules.map(normalizeRule),
+      })),
+      isDefault: legacy.isDefault === true,
+    }
+    return
+  }
+  const rules = legacy.rules?.map(normalizeRule) ?? []
+  node.props = { groups: rules.length > 0 ? [{ name: '组1', link: 'AND', rules }] : [], isDefault: legacy.isDefault === true }
+}
+
 /**
  * 旧草稿兼容：剔除已被移除类型的节点，并把它的后继接驳到父级，避免主链断裂。
  * 先清理子树再判定自身，这样自身被剔除时可以直接把已清理的后继顶上来。
@@ -134,6 +177,9 @@ const SUPPORTED_NODE_TYPES = new Set<string>(Object.values(NodeType))
 function sanitizeNode(node: WorkflowNode | null): WorkflowNode | null {
   if (!node) {
     return null
+  }
+  if (node.type === NodeType.CONDITION) {
+    migrateConditionProps(node)
   }
   node.childNode = sanitizeNode(node.childNode)
   if (node.conditionNodes?.length) {
@@ -189,9 +235,9 @@ export const useWorkflowStore = defineStore('workflow', () => {
     }
     const node = createNode(type)
     if (type === NodeType.CONDITIONS) {
-      // 钉钉式初始形态：条件1 + 默认条件两列，且每列预置一个审批节点
+      // 钉钉式初始形态：条件1 + 其他条件两列，且每列预置一个审批节点
       const first = createNode(NodeType.CONDITION, { name: '条件1' })
-      const defaultBranch = createNode(NodeType.CONDITION, { name: '默认条件' })
+      const defaultBranch = createNode(NodeType.CONDITION, { name: '其他条件' })
       ;(defaultBranch.props as ConditionProps).isDefault = true
       first.childNode = createNode(NodeType.APPROVER)
       defaultBranch.childNode = createNode(NodeType.APPROVER)

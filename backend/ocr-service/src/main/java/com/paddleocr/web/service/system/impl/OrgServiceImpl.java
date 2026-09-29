@@ -16,10 +16,14 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -52,10 +56,31 @@ public class OrgServiceImpl implements OrgService {
                 new LambdaQueryWrapper<OrgDO>()
                         .orderByAsc(OrgDO::getSort)
                         .orderByAsc(OrgDO::getId));
-        Map<Long, List<OrgDO>> byParent = all.stream()
-                .collect(Collectors.groupingBy(OrgDO::getParentId));
+        Map<Long, List<OrgDO>> byParent = groupByParent(all);
         List<OrgDO> roots = byParent.getOrDefault(ROOT_PARENT_ID, Collections.emptyList());
         return roots.stream().map(org -> buildNode(org, byParent)).collect(Collectors.toList());
+    }
+
+    @Override
+    public Set<Long> listSubtreeOrgIds(Long orgId) {
+        // 机构数 < 数千：一次查全表（仅 ID/父 ID 两列）内存按父分组，逐层收集子树
+        List<OrgDO> all = orgMapper.selectList(new LambdaQueryWrapper<OrgDO>()
+                .select(OrgDO::getId, OrgDO::getParentId));
+        Map<Long, List<OrgDO>> byParent = groupByParent(all);
+        Set<Long> subtreeIds = new LinkedHashSet<>();
+        Deque<Long> pending = new ArrayDeque<>();
+        pending.add(orgId);
+        while (!pending.isEmpty()) {
+            Long currentId = pending.poll();
+            // 已收集过则跳过（同时兜住脏数据造成的父子环）
+            if (!subtreeIds.add(currentId)) {
+                continue;
+            }
+            for (OrgDO child : byParent.getOrDefault(currentId, Collections.emptyList())) {
+                pending.add(child.getId());
+            }
+        }
+        return subtreeIds;
     }
 
     @Override
@@ -115,6 +140,13 @@ public class OrgServiceImpl implements OrgService {
         }
         orgMapper.deleteById(id);
         log.info("机构删除成功, orgId={}, orgCode={}", id, org.getOrgCode());
+    }
+
+    /**
+     * 按父机构 ID 分组，供组树与子树收集复用
+     */
+    private Map<Long, List<OrgDO>> groupByParent(List<OrgDO> orgs) {
+        return orgs.stream().collect(Collectors.groupingBy(OrgDO::getParentId));
     }
 
     /**

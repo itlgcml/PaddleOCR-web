@@ -4,6 +4,7 @@ import { Plus, Delete } from '@element-plus/icons-vue'
 import {
   NodeType,
   type ApproverProps,
+  type ConditionGroup,
   type ConditionProps,
   type ConditionRule,
   type StartProps,
@@ -33,7 +34,7 @@ const TITLE_MAP: Record<string, string> = {
 const draftName = ref('')
 const draftStart = ref<StartProps>({ rangeType: 'ALL', memberIds: [] })
 const draftApprover = ref<ApproverProps>({ source: 'MEMBER', memberIds: [], leaderLevel: 1, multiMode: 'OR', emptyPolicy: 'AUTO_PASS', canRejectToStart: false })
-const draftCondition = ref<ConditionProps>({ rules: [], isDefault: false })
+const draftCondition = ref<ConditionProps>({ groups: [], isDefault: false })
 
 watch(
   () => props.node,
@@ -73,7 +74,7 @@ function handleSave(): void {
       emit('save', props.node.id, deepClone(draftApprover.value), draftName.value)
       break
     case NodeType.CONDITION:
-      emit('save', props.node.id, deepClone(draftCondition.value), draftCondition.value.isDefault ? '默认条件' : draftName.value)
+      emit('save', props.node.id, deepClone(draftCondition.value), draftCondition.value.isDefault ? '其他条件' : draftName.value)
       break
     default:
       emit('save', props.node.id, deepClone(props.node.props), draftName.value)
@@ -86,14 +87,36 @@ function handleClose(): void {
   visible.value = false
 }
 
-/** 条件规则行操作 */
-function addRule(): void {
+/** 条件组 / 条件规则操作（仅改草稿，保存时一次性提交） */
+function createRule(): ConditionRule {
   const field = MOCK_FIELDS[0]
-  draftCondition.value.rules.push({ fieldKey: field.id, fieldName: field.label, operator: 'GT', value: '' })
+  return { fieldKey: field.id, fieldName: field.label, operator: 'GT', value: '', link: 'AND' }
 }
 
-function removeRule(idx: number): void {
-  draftCondition.value.rules.splice(idx, 1)
+function addGroup(): void {
+  draftCondition.value.groups.push({ name: nextGroupName(), link: 'AND', rules: [createRule()] })
+}
+
+function removeGroup(index: number): void {
+  draftCondition.value.groups.splice(index, 1)
+}
+
+function addRule(group: ConditionGroup): void {
+  group.rules.push(createRule())
+}
+
+function removeRule(group: ConditionGroup, index: number): void {
+  group.rules.splice(index, 1)
+}
+
+/** 新条件组的默认名称「组n」：跳过已被占用的序号 */
+function nextGroupName(): string {
+  const used = new Set(draftCondition.value.groups.map((group) => group.name))
+  let index = 1
+  while (used.has(`组${index}`)) {
+    index += 1
+  }
+  return `组${index}`
 }
 
 function onFieldChange(rule: ConditionRule, fieldId: string): void {
@@ -203,22 +226,46 @@ const EMPTY_POLICY_OPTIONS = [
           </el-form-item>
         </template>
 
-        <!-- 条件 -->
+        <!-- 条件：支持多个条件组，组内与组间均可选择「且 / 或」 -->
         <template v-else-if="node.type === NodeType.CONDITION">
-          <el-alert v-if="draftCondition.isDefault" type="info" :closable="false" show-icon title="默认条件：其余分支均不满足时进入，无需配置规则" />
+          <el-alert v-if="draftCondition.isDefault" type="info" :closable="false" show-icon title="其他条件：其余分支均不满足时进入，无需配置规则" />
           <template v-else>
-            <div v-for="(rule, idx) in draftCondition.rules" :key="idx" class="wf-rule-row">
-              <el-select :model-value="rule.fieldKey" style="width: 110px" @update:model-value="onFieldChange(rule, $event)">
-                <el-option v-for="f in MOCK_FIELDS" :key="f.id" :label="f.label" :value="f.id" />
-              </el-select>
-              <el-select v-model="rule.operator" style="width: 110px">
-                <el-option v-for="op in OPERATOR_OPTIONS" :key="op.value" :label="op.label" :value="op.value" />
-              </el-select>
-              <el-input v-model="rule.value" placeholder="值" style="flex: 1" />
-              <el-button :icon="Delete" circle text type="danger" @click="removeRule(idx)" />
-            </div>
-            <div v-if="draftCondition.rules.length > 1" class="wf-rule-tip">条件之间为「且」的关系</div>
-            <el-button type="primary" plain :icon="Plus" @click="addRule">添加条件</el-button>
+            <template v-for="(group, groupIdx) in draftCondition.groups" :key="groupIdx">
+              <!-- 组间连接符：本组与上一组的关系 -->
+              <div v-if="groupIdx > 0" class="wf-logic-row">
+                <el-select v-model="group.link" size="small" style="width: 72px">
+                  <el-option label="且" value="AND" />
+                  <el-option label="或" value="OR" />
+                </el-select>
+              </div>
+              <div class="wf-group">
+                <div class="wf-group-head">
+                  <el-input v-model="group.name" class="wf-group-name" size="small" maxlength="20" placeholder="条件组名称" />
+                  <el-icon class="wf-group-del" title="删除条件组" @click="removeGroup(groupIdx)"><Delete /></el-icon>
+                </div>
+                <template v-for="(rule, ruleIdx) in group.rules" :key="ruleIdx">
+                  <!-- 组内连接符：本条与上一条的关系 -->
+                  <div v-if="ruleIdx > 0" class="wf-logic-row">
+                    <el-select v-model="rule.link" size="small" style="width: 72px">
+                      <el-option label="且" value="AND" />
+                      <el-option label="或" value="OR" />
+                    </el-select>
+                  </div>
+                  <div class="wf-rule-row">
+                    <el-select :model-value="rule.fieldKey" style="width: 104px" @update:model-value="onFieldChange(rule, $event)">
+                      <el-option v-for="f in MOCK_FIELDS" :key="f.id" :label="f.label" :value="f.id" />
+                    </el-select>
+                    <el-select v-model="rule.operator" style="width: 104px">
+                      <el-option v-for="op in OPERATOR_OPTIONS" :key="op.value" :label="op.label" :value="op.value" />
+                    </el-select>
+                    <el-input v-model="rule.value" placeholder="值" style="flex: 1" />
+                    <el-button :icon="Delete" circle text type="danger" @click="removeRule(group, ruleIdx)" />
+                  </div>
+                </template>
+                <el-button type="primary" plain size="small" :icon="Plus" @click="addRule(group)">添加条件</el-button>
+              </div>
+            </template>
+            <el-button class="wf-group-add" type="primary" plain :icon="Plus" @click="addGroup">添加条件组</el-button>
           </template>
         </template>
       </el-form>
@@ -236,6 +283,43 @@ const EMPTY_POLICY_OPTIONS = [
   padding: 0 4px;
 }
 
+/* 条件组卡片 */
+.wf-group {
+  padding: 8px 10px 10px;
+  margin-bottom: 10px;
+  background: #fafbfc;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+}
+
+.wf-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+/* 条件组名称可直接编辑 */
+.wf-group-name {
+  width: 160px;
+}
+
+.wf-group-del {
+  color: #909399;
+  cursor: pointer;
+}
+
+.wf-group-del:hover {
+  color: #f56c6c;
+}
+
+/* 组内 / 组间的「且 / 或」连接符：单独一行居中 */
+.wf-logic-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
 .wf-rule-row {
   display: flex;
   gap: 6px;
@@ -243,9 +327,7 @@ const EMPTY_POLICY_OPTIONS = [
   margin-bottom: 8px;
 }
 
-.wf-rule-tip {
-  margin: -2px 0 10px;
-  font-size: 12px;
-  color: #909399;
+.wf-group-add {
+  width: 100%;
 }
 </style>
