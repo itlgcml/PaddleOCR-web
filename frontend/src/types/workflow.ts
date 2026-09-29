@@ -76,13 +76,19 @@ export interface ConditionProps {
   isDefault: boolean
 }
 
+/** 并行分支列属性 */
+export interface ParallelBranchProps {
+  /** 条件组：为空表示该分支默认执行（无需满足条件） */
+  groups: ConditionGroup[]
+}
+
 /** 分支列移动动作：移到最左 / 左移一级 / 右移一级 / 移到最右 */
 export type BranchMoveAction = 'FIRST' | 'PREV' | 'NEXT' | 'LAST'
 
 /** 分支列删除动作：只删该列 / 删除整个条件分支节点 / 删除整个并行节点 / 不可删除 */
 export type BranchDeleteAction = 'COLUMN' | 'BRANCH' | 'PARALLEL' | 'NONE'
 
-export type NodeProps = StartProps | ApproverProps | ConditionProps | Record<string, never>
+export type NodeProps = StartProps | ApproverProps | ConditionProps | ParallelBranchProps | Record<string, never>
 
 /** 流程节点（递归结构：主干 childNode 串联，分支 conditionNodes 横向展开） */
 export interface WorkflowNode {
@@ -123,6 +129,8 @@ export function createNodeProps(type: NodeType): NodeProps {
       }
     case NodeType.CONDITION:
       return { groups: [], isDefault: false }
+    case NodeType.PARALLEL_BRANCH:
+      return { groups: [] }
     default:
       return {}
   }

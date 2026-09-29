@@ -1,14 +1,12 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Download, RefreshLeft, Upload } from '@element-plus/icons-vue'
+import { Download, FullScreen, RefreshLeft, Upload } from '@element-plus/icons-vue'
 
-const flowName = defineModel<string>('flowName', { required: true })
 const zoom = defineModel<number>('zoom', { required: true })
+const fullscreen = defineModel<boolean>('fullscreen', { default: false })
 
 const emit = defineEmits<{
-  (e: 'save'): void
   (e: 'validate'): void
-  (e: 'fit'): void
   (e: 'import', text: string): void
   (e: 'export'): void
   (e: 'reset'): void
@@ -36,19 +34,29 @@ function zoomIn(): void {
 function zoomOut(): void {
   zoom.value = Math.max(0.5, zoom.value - 0.1)
 }
+
+function resetZoom(): void {
+  zoom.value = 1
+}
+
+/** 版本号（前端示例，二期接流程版本接口） */
+const version = ref('v1')
+const versionOptions = ['v1', 'v2', 'v3']
 </script>
 
 <template>
   <div class="wf-toolbar">
-    <el-input v-model="flowName" class="wf-toolbar-name" maxlength="30" placeholder="流程名称">
-      <template #prepend>流程名称</template>
-    </el-input>
-
     <div class="wf-toolbar-group">
-      <el-button :icon="RefreshLeft" size="small" @click="zoomOut">-</el-button>
-      <span class="wf-toolbar-zoom">{{ Math.round(zoom * 100) }}%</span>
-      <el-button size="small" @click="zoomIn">+</el-button>
-      <el-button size="small" @click="emit('fit')">适应画布</el-button>
+      <div class="wf-toolbar-zoom-group">
+        <el-button size="small" @click="zoomOut">-</el-button>
+        <span class="wf-toolbar-zoom">{{ Math.round(zoom * 100) }}%</span>
+        <el-button size="small" @click="zoomIn">+</el-button>
+        <el-button :icon="RefreshLeft" size="small" title="重置缩放" @click="resetZoom" />
+      </div>
+      <span class="wf-toolbar-sep" />
+      <el-button size="small" :icon="FullScreen" @click="fullscreen = !fullscreen">
+        {{ fullscreen ? '退出全屏' : '全屏' }}
+      </el-button>
     </div>
 
     <div class="wf-toolbar-group">
@@ -56,7 +64,13 @@ function zoomOut(): void {
       <el-button size="small" :icon="Upload" @click="pickFile">导入</el-button>
       <el-button size="small" :icon="Download" @click="emit('export')">导出</el-button>
       <el-button size="small" @click="emit('reset')">重置</el-button>
-      <el-button size="small" type="primary" @click="emit('save')">保存草稿</el-button>
+    </div>
+
+    <div class="wf-toolbar-group wf-toolbar-version">
+      <span class="wf-toolbar-version-label">版本号</span>
+      <el-select v-model="version" size="small" style="width: 88px">
+        <el-option v-for="item in versionOptions" :key="item" :label="item" :value="item" />
+      </el-select>
     </div>
 
     <input ref="fileInput" type="file" accept=".json,application/json" hidden @change="onFileChange" />
@@ -74,10 +88,6 @@ function zoomOut(): void {
   border-bottom: 1px solid #e4e7ed;
 }
 
-.wf-toolbar-name {
-  width: 260px;
-}
-
 .wf-toolbar-group {
   display: flex;
   gap: 8px;
@@ -89,5 +99,28 @@ function zoomOut(): void {
   font-size: 12px;
   color: #606266;
   text-align: center;
+}
+
+.wf-toolbar-zoom-group {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.wf-toolbar-sep {
+  width: 1px;
+  height: 16px;
+  background: #dcdfe6;
+}
+
+.wf-toolbar-version {
+  margin-left: auto;
+  margin-right: -16px;
+}
+
+.wf-toolbar-version-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #303133;
 }
 </style>

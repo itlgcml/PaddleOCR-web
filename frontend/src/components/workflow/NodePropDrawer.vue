@@ -7,6 +7,7 @@ import {
   type ConditionGroup,
   type ConditionProps,
   type ConditionRule,
+  type ParallelBranchProps,
   type StartProps,
   type WorkflowNode,
 } from '@/types/workflow'
@@ -55,6 +56,9 @@ watch(
       case NodeType.CONDITION:
         draftCondition.value = raw as ConditionProps
         break
+      case NodeType.PARALLEL_BRANCH:
+        draftCondition.value = { groups: (raw as ParallelBranchProps).groups ?? [], isDefault: false }
+        break
       default:
         break
     }
@@ -75,6 +79,9 @@ function handleSave(): void {
       break
     case NodeType.CONDITION:
       emit('save', props.node.id, deepClone(draftCondition.value), draftCondition.value.isDefault ? '其他条件' : draftName.value)
+      break
+    case NodeType.PARALLEL_BRANCH:
+      emit('save', props.node.id, { groups: deepClone(draftCondition.value.groups) }, draftName.value)
       break
     default:
       emit('save', props.node.id, deepClone(props.node.props), draftName.value)
@@ -226,10 +233,26 @@ const EMPTY_POLICY_OPTIONS = [
           </el-form-item>
         </template>
 
-        <!-- 条件：支持多个条件组，组内与组间均可选择「且 / 或」 -->
-        <template v-else-if="node.type === NodeType.CONDITION">
-          <el-alert v-if="draftCondition.isDefault" type="info" :closable="false" show-icon title="其他条件：其余分支均不满足时进入，无需配置规则" />
-          <template v-else>
+        <!-- 条件分支 / 并行分支：均支持配置条件组，组内与组间可「且 / 或」 -->
+        <template v-else-if="node.type === NodeType.CONDITION || node.type === NodeType.PARALLEL_BRANCH">
+          <!-- 并行分支：未配置条件则默认执行 -->
+          <el-alert
+            v-if="node.type === NodeType.PARALLEL_BRANCH"
+            type="info"
+            :closable="false"
+            show-icon
+            title="未配置条件时该分支默认执行；配置条件后仅满足条件时进入"
+          />
+          <!-- 条件分支「其他条件」：无需配置规则 -->
+          <el-alert
+            v-else-if="draftCondition.isDefault"
+            type="info"
+            :closable="false"
+            show-icon
+            title="其他条件：其余分支均不满足时进入，无需配置规则"
+          />
+          <!-- 条件组编辑（条件分支非默认列 / 并行分支） -->
+          <template v-if="node.type === NodeType.PARALLEL_BRANCH || !draftCondition.isDefault">
             <template v-for="(group, groupIdx) in draftCondition.groups" :key="groupIdx">
               <!-- 组间连接符：本组与上一组的关系 -->
               <div v-if="groupIdx > 0" class="wf-logic-row">

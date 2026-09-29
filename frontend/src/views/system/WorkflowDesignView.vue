@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { isBranchContainer, NodeType, type BranchDeleteAction, type BranchMoveAction, type NodeProps, type WorkflowNode } from '@/types/workflow'
 import { useWorkflowStore } from '@/stores/workflow'
@@ -13,12 +13,7 @@ const { doc, zoom, activeNodeId, activeNode } = storeToRefs(store)
 const { errors } = useWorkflowValidate(doc)
 
 const drawerVisible = ref(false)
-const flowName = computed({
-  get: () => doc.value.name,
-  set: (v: string) => {
-    doc.value.name = v
-  },
-})
+const fullscreen = ref(false)
 
 /** 画布统一事件入口（经 $attrs 逐层透传） */
 function onOpen(node: WorkflowNode): void {
@@ -117,12 +112,6 @@ function onDrawerClose(): void {
   store.setActive(null)
 }
 
-/** 工具栏 */
-function onSave(): void {
-  store.saveDraft()
-  ElMessage.success('已保存到本地草稿')
-}
-
 function onValidate(): void {
   if (errors.value.length === 0) {
     ElMessage.success('校验通过')
@@ -164,13 +153,11 @@ async function onReset(): Promise<void> {
 
 <template>
   <!-- 页面任意位置按下即关闭「添加节点」菜单（菜单内部已阻止冒泡） -->
-  <div class="wf-designer" @pointerdown="store.closeAddMenu()">
+  <div class="wf-designer" :class="{ 'is-fullscreen': fullscreen }" @pointerdown="store.closeAddMenu()">
     <WorkflowToolbar
-      v-model:flow-name="flowName"
       v-model:zoom="zoom"
-      @save="onSave"
+      v-model:fullscreen="fullscreen"
       @validate="onValidate"
-      @fit="store.setZoom(1)"
       @import="onImport"
       @export="onExport"
       @reset="onReset"
@@ -204,6 +191,14 @@ async function onReset(): Promise<void> {
   overflow: hidden;
   background: #ffffff;
   border-radius: 6px;
+}
+
+.wf-designer.is-fullscreen {
+  position: fixed;
+  inset: 0;
+  /* 低于 Element Plus 弹窗默认层级（2000），避免遮住重置/删除等确认框 */
+  z-index: 1000;
+  border-radius: 0;
 }
 
 .wf-designer-main {

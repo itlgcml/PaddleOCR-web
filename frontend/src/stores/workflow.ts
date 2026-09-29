@@ -3,8 +3,6 @@ import { defineStore } from 'pinia'
 import { deepClone } from '@/utils/clone'
 import { createNodeProps, isBranchContainer, NodeType, type BranchDeleteAction, type BranchMoveAction, type ConditionLogic, type ConditionProps, type ConditionRule, type NodeProps, type NodeType as NodeTypeT, type WorkflowDoc, type WorkflowNode } from '@/types/workflow'
 
-const DRAFT_KEY = 'workflow-draft'
-
 /** 默认节点名 */
 const DEFAULT_NAMES: Record<string, string> = {
   [NodeType.START]: '发起人',
@@ -200,24 +198,8 @@ function sanitizeDoc(doc: WorkflowDoc): WorkflowDoc {
   return doc
 }
 
-function restoreDraft(): WorkflowDoc | null {
-  try {
-    const raw = localStorage.getItem(DRAFT_KEY)
-    if (!raw) {
-      return null
-    }
-    const parsed: unknown = JSON.parse(raw)
-    if (typeof parsed === 'object' && parsed !== null && 'root' in parsed) {
-      return sanitizeDoc(parsed as WorkflowDoc)
-    }
-    return null
-  } catch {
-    return null
-  }
-}
-
 export const useWorkflowStore = defineStore('workflow', () => {
-  const doc = ref<WorkflowDoc>(restoreDraft() ?? createDefaultDoc())
+  const doc = ref<WorkflowDoc>(createDefaultDoc())
   const zoom = ref(1)
   const activeNodeId = ref<string | null>(null)
   /** 当前展开的「添加节点」菜单所属 parentId（全局唯一，点击外部统一清空） */
@@ -444,14 +426,6 @@ export const useWorkflowStore = defineStore('workflow', () => {
     return JSON.stringify(doc.value, null, 2)
   }
 
-  function saveDraft(): void {
-    try {
-      localStorage.setItem(DRAFT_KEY, exportDoc())
-    } catch {
-      // 存储满等异常静默忽略，不影响主流程
-    }
-  }
-
   return {
     doc,
     zoom,
@@ -473,6 +447,5 @@ export const useWorkflowStore = defineStore('workflow', () => {
     resetDoc,
     loadDoc,
     exportDoc,
-    saveDraft,
   }
 })

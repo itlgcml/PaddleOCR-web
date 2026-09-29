@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { CaretBottom, Connection, HomeFilled, Key, OfficeBuilding, Setting, SwitchButton, User } from '@element-plus/icons-vue'
+import { AlarmClock, CaretBottom, Finished, HomeFilled, Key, OfficeBuilding, Promotion, Reading, SetUp, Stamp, SwitchButton, User, View } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 
 const ROLE_LABELS: Record<string, string> = { ADMIN: '管理员', USER: '普通用户' }
@@ -13,6 +13,15 @@ const auth = useAuthStore()
 const { user, isAdmin } = storeToRefs(auth)
 
 const pageTitle = computed(() => route.meta.title || '首页')
+const openedMenus = computed<string[]>(() => {
+  if (route.path.startsWith('/approval')) {
+    return ['/approval']
+  }
+  if (route.path.startsWith('/system')) {
+    return ['/system']
+  }
+  return []
+})
 const displayName = computed(() => user.value?.nickname || user.value?.username || '用户')
 const avatarChar = computed(() => displayName.value.charAt(0).toUpperCase())
 const roleLabels = computed(() => {
@@ -55,6 +64,7 @@ async function handleCommand(command: string | number | object): Promise<void> {
         class="menu"
         router
         :default-active="route.path"
+        :default-openeds="openedMenus"
         background-color="#1d2b3a"
         text-color="rgba(255, 255, 255, 0.65)"
         active-text-color="#ffffff"
@@ -63,10 +73,36 @@ async function handleCommand(command: string | number | object): Promise<void> {
           <el-icon><HomeFilled /></el-icon>
           <span>首页</span>
         </el-menu-item>
-        <el-menu-item index="/workflow-design">
-          <el-icon><Connection /></el-icon>
-          <span>流程设计</span>
-        </el-menu-item>
+        <el-sub-menu index="/approval">
+          <template #title>
+            <el-icon><Stamp /></el-icon>
+            <span>审批管理</span>
+          </template>
+          <el-menu-item index="/approval/todo">
+            <el-icon><AlarmClock /></el-icon>
+            <span>待办任务</span>
+          </el-menu-item>
+          <el-menu-item index="/approval/done">
+            <el-icon><Finished /></el-icon>
+            <span>已办任务</span>
+          </el-menu-item>
+          <el-menu-item index="/approval/initiated">
+            <el-icon><Promotion /></el-icon>
+            <span>我发起的</span>
+          </el-menu-item>
+          <el-menu-item index="/approval/to-read">
+            <el-icon><Reading /></el-icon>
+            <span>我的待阅</span>
+          </el-menu-item>
+          <el-menu-item index="/approval/read">
+            <el-icon><View /></el-icon>
+            <span>我的已阅</span>
+          </el-menu-item>
+          <el-menu-item index="/approval/process-config">
+            <el-icon><SetUp /></el-icon>
+            <span>流程配置</span>
+          </el-menu-item>
+        </el-sub-menu>
         <el-sub-menu v-if="isAdmin" index="/system">
           <template #title>
             <el-icon><Setting /></el-icon>
