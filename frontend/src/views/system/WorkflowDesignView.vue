@@ -161,7 +161,12 @@ async function onReset(): Promise<void> {
       @import="onImport"
       @export="onExport"
       @reset="onReset"
-    />
+    >
+      <!-- 工具栏右侧扩展位透传：由使用方（如流程配置向导）注入版本视图切换器，未注入时该插槽为空 -->
+      <template #version>
+        <slot name="version" />
+      </template>
+    </WorkflowToolbar>
 
     <div class="wf-designer-main">
       <WorkflowCanvas

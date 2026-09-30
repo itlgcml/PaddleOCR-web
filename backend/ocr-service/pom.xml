@@ -55,6 +55,11 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
+        <!-- 防重复提交分布式锁（审批流程保存设计/发布，Redis 复用 auth 同一实例） -->
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson-spring-boot-starter</artifactId>
+        </dependency>
         <!-- PasswordSupport 编译所需（仅 crypto 子包，ocr-service 不依赖 security starter） -->
         <dependency>
             <groupId>org.springframework.security</groupId>

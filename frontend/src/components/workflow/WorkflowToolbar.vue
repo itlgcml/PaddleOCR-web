@@ -38,10 +38,6 @@ function zoomOut(): void {
 function resetZoom(): void {
   zoom.value = 1
 }
-
-/** 版本号（前端示例，二期接流程版本接口） */
-const version = ref('v1')
-const versionOptions = ['v1', 'v2', 'v3']
 </script>
 
 <template>
@@ -66,11 +62,9 @@ const versionOptions = ['v1', 'v2', 'v3']
       <el-button size="small" @click="emit('reset')">重置</el-button>
     </div>
 
-    <div class="wf-toolbar-group wf-toolbar-version">
-      <span class="wf-toolbar-version-label">版本号</span>
-      <el-select v-model="version" size="small" style="width: 88px">
-        <el-option v-for="item in versionOptions" :key="item" :label="item" :value="item" />
-      </el-select>
+    <!-- 工具栏右侧扩展位：由调用方传入（流程配置向导传入「版本视图」切换器；空插槽时不占位） -->
+    <div v-if="$slots.version" class="wf-toolbar-group wf-toolbar-version">
+      <slot name="version" />
     </div>
 
     <input ref="fileInput" type="file" accept=".json,application/json" hidden @change="onFileChange" />
@@ -116,11 +110,5 @@ const versionOptions = ['v1', 'v2', 'v3']
 .wf-toolbar-version {
   margin-left: auto;
   margin-right: -16px;
-}
-
-.wf-toolbar-version-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: #303133;
 }
 </style>

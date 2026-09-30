@@ -66,6 +66,20 @@ public enum ResultCode {
     /** 管理端操作的目标用户不存在 */
     USER_NOT_FOUND(40032, "用户不存在"),
 
+    // ---- 审批流程域 ----
+    /** 流程编码已存在（新增撞 uk_code，含并发兜底） */
+    PROCESS_CODE_EXISTS(40040, "流程编码已存在"),
+    /** 流程不存在（查无 / 已删） */
+    PROCESS_NOT_FOUND(40041, "流程不存在"),
+    /** 流程设计不合法（发布校验未通过） */
+    PROCESS_DESIGN_INVALID(40042, "流程设计不合法"),
+    /** 流程状态不允许该操作 */
+    PROCESS_STATUS_ILLEGAL(40043, "流程状态不允许该操作"),
+    /** 流程版本不存在 */
+    PROCESS_VERSION_NOT_FOUND(40044, "流程版本不存在"),
+    /** 请勿重复提交（分布式锁未获取） */
+    PROCESS_REPEAT_SUBMIT(40045, "请勿重复提交"),
+
     // ---- 系统段 ----
     SYSTEM_ERROR(50000, "系统内部错误"),
     DB_ERROR(50001, "数据库操作失败"),

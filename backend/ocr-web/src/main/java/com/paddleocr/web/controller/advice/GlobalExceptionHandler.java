@@ -90,6 +90,13 @@ public class GlobalExceptionHandler {
         if (message.contains("uk_org_code")) {
             return ApiResponse.fail(ResultCode.ORG_CODE_EXISTS);
         }
+        if (message.contains("uk_code")) {
+            return ApiResponse.fail(ResultCode.PROCESS_CODE_EXISTS);
+        }
+        if (message.contains("uk_process_version")) {
+            // 并发发布撞（process_id, version）唯一索引：版本号生成竞态兜底
+            return ApiResponse.fail(ResultCode.PROCESS_DESIGN_INVALID);
+        }
         return ApiResponse.fail(ResultCode.SYSTEM_ERROR);
     }
 

@@ -39,6 +39,8 @@
         <hutool.version>5.8.47</hutool.version>
         <!-- JWT：JJWT 0.11.5（JDK 8 兼容线，0.12.x 起模块化与 JDK 要求变化，禁止升级） -->
         <jjwt.version>0.11.5</jjwt.version>
+        <!-- Redisson：3.17.x 为 JDK 8 兼容线（防重复提交分布式锁） -->
+        <redisson.version>3.17.7</redisson.version>
     </properties>
 
     <dependencyManagement>
@@ -116,6 +118,12 @@
                 <groupId>io.jsonwebtoken</groupId>
                 <artifactId>jjwt-jackson</artifactId>
                 <version>${jjwt.version}</version>
+            </dependency>
+            <!-- 防重复提交分布式锁（Redis 复用 auth 已引入实例，Redisson 自动装配 spring.redis.*） -->
+            <dependency>
+                <groupId>org.redisson</groupId>
+                <artifactId>redisson-spring-boot-starter</artifactId>
+                <version>${redisson.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

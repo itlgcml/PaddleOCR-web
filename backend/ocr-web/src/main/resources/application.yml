@@ -14,7 +14,9 @@ spring:
   redis:
     host: ${REDIS_HOST:localhost}
     port: ${REDIS_PORT:6379}
-    password: ${REDIS_PASSWORD:}
+    # 禁止写 password: ${REDIS_PASSWORD:} —— 占位符空默认值会解析成空串而非 null，
+    # Redisson 自动装配只判非 null 会对无密码 Redis 发 AUTH 直接报错（Lettuce 会忽略空串，两者行为不一致）。
+    # 生产需要密码时用 SPRING_REDIS_PASSWORD 环境变量注入（宽松绑定，等价 spring.redis.password）
     timeout: 1000ms        # command 超时必须调短（Lettuce 默认 60s 会拖死请求线程），fail-open 的前提
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -61,3 +63,8 @@ security:
     max-failed-attempts: 5         # 连续登录失败锁定阈值
     lock-duration-minutes: 15      # 账号锁定时长（分钟）
     enabled: true                  # 故障一键关闭鉴权（降级开关，生产慎用）
+
+approval:
+  process:
+    design-max-length: 524288      # 流程设计 JSON 长度上限（默认 512KB），防超大负载拖垮接口
+    lock-lease-seconds: 3          # 防重复提交锁持有时长（秒），兜底自动释放防死锁
