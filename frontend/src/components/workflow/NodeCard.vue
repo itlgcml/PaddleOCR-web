@@ -27,14 +27,15 @@ const description = computed<string>(() => {
   const p = props.node.props
   switch (props.node.type) {
     case NodeType.START: {
-      const start = p as { rangeType: string; memberIds: string[] }
+      const start = p as { rangeType: string; memberIds?: string[]; roleIds?: string[] }
       if (start.rangeType === 'ALL') {
-        return '所有人'
+        return '全体'
       }
-      return start.memberIds.length > 0 ? start.memberIds.map(memberLabel).join('、') : '请设置'
+      const names = [...(start.memberIds ?? []), ...(start.roleIds ?? [])].map(memberLabel)
+      return names.length > 0 ? names.join('、') : '未指定'
     }
     case NodeType.APPROVER: {
-      const appr = p as { source: string; memberIds: string[]; leaderLevel: number }
+      const appr = p as { source: string; memberIds?: string[]; roleIds?: string[]; leaderLevel: number }
       if (appr.source === 'LEADER') {
         return appr.leaderLevel > 1 ? `连续 ${appr.leaderLevel} 级主管` : '直属主管'
       }
@@ -44,7 +45,8 @@ const description = computed<string>(() => {
       if (appr.source === 'SELF_SELECT') {
         return '发起人自选'
       }
-      return appr.memberIds.length > 0 ? appr.memberIds.map(memberLabel).join('、') : '请设置审批人'
+      const names = [...(appr.memberIds ?? []), ...(appr.roleIds ?? [])].map(memberLabel)
+      return names.length > 0 ? names.join('、') : '请设置审批人'
     }
     case NodeType.CONDITION: {
       const cond = p as ConditionProps

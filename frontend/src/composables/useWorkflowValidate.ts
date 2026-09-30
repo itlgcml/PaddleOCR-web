@@ -19,8 +19,9 @@ export function useWorkflowValidate(doc: Ref<WorkflowDoc>) {
     }
     if (node.type === NodeType.APPROVER) {
       const p = node.props as ApproverProps
-      const needMembers = p.source === 'MEMBER' || p.source === 'ROLE'
-      if (needMembers && p.memberIds.length === 0) {
+      // 指定审批人：人员与角色的并集至少选择一个
+      const empty = (p.memberIds?.length ?? 0) === 0 && (p.roleIds?.length ?? 0) === 0
+      if (p.source === 'MEMBER' && empty) {
         list.push({ nodeId: node.id, message: `审批节点「${node.name}」未选择审批人` })
       }
     }

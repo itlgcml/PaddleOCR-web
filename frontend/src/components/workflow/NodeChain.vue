@@ -22,6 +22,12 @@ function isDefault(branch: WorkflowNode): boolean {
   return (branch.props as ConditionProps).isDefault === true
 }
 
+/** 条件列优先级标签：由列顺序决定，默认列（其他条件）不展示 */
+function priorityText(branch: WorkflowNode): string {
+  const priority = (branch.props as ConditionProps).priority ?? 0
+  return priority > 0 ? `优先级${priority}` : ''
+}
+
 /** 移动按钮可用性：纯按位置摆放，首列不可再左移、末列不可再右移 */
 function canMove(idx: number, action: BranchMoveAction): boolean {
   if (action === 'FIRST' || action === 'PREV') {
@@ -75,6 +81,7 @@ function canDelete(branch: WorkflowNode): boolean {
               @click.stop="canMove(idx, 'PREV') && $emit('move-branch', branch.id, 'PREV')"
             ><ArrowLeft /></el-icon>
             <span class="wf-cond-title">{{ branch.name }}</span>
+            <span v-if="priorityText(branch)" class="wf-cond-priority">{{ priorityText(branch) }}</span>
             <el-icon
               class="wf-cond-action"
               :class="{ 'is-disabled': !canMove(idx, 'NEXT') }"
@@ -278,6 +285,17 @@ function canDelete(branch: WorkflowNode): boolean {
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 条件列优先级标签：由列顺序决定 */
+.wf-cond-priority {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  font-size: 12px;
+  line-height: 16px;
+  color: #409eff;
+  background: #ecf5ff;
+  border-radius: 9px;
 }
 
 /* 列头操作按钮：默认隐藏，鼠标悬浮列头时才出现；不可用时置灰且不响应点击 */

@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { deepClone } from '@/utils/clone'
-import { createNodeProps, isBranchContainer, NodeType, type BranchDeleteAction, type BranchMoveAction, type ConditionLogic, type ConditionProps, type ConditionRule, type NodeProps, type NodeType as NodeTypeT, type WorkflowDoc, type WorkflowNode } from '@/types/workflow'
+import { createNodeProps, isBranchContainer, NodeType, normalizeApproverButtons, type BranchDeleteAction, type BranchMoveAction, type ConditionLogic, type ConditionProps, type ConditionRule, type NodeProps, type NodeType as NodeTypeT, type StartProps, type WorkflowDoc, type WorkflowNode } from '@/types/workflow'
 
 /** 默认节点名 */
 const DEFAULT_NAMES: Record<string, string> = {
@@ -98,16 +98,41 @@ function resolveBranchTarget(from: number, length: number, action: BranchMoveAct
 }
 
 /**
- * 纯按位置重建分支列的名称与默认身份：条件分支末列为「其他条件」、其余依次为 条件1..条件n；
- * 并行节点无默认列，全部依次为 并行1..并行n。任何增删/移动后都调用，会覆盖自定义名称。
+ * 按位置重建条件列的默认身份与优先级：末列为「其他条件」（优先级恒为 0，不参与排序），
+ * 其余列按顺序为优先级 1..n。
+ * 分支列名称不再重排，保留用户自定义的名称（新增列只取一次默认名）。
+ * 并行节点无优先级概念，直接跳过。
  */
 function normalizeBranches(containerType: NodeTypeT, branches: WorkflowNode[]): void {
-  const parallel = containerType === NodeType.PARALLEL
+  if (containerType !== NodeType.CONDITIONS) {
+    return
+  }
+  let priority = 1
   branches.forEach((branch, index) => {
-    const isDefaultBranch = !parallel && index === branches.length - 1
-    ;(branch.props as ConditionProps).isDefault = isDefaultBranch
-    branch.name = isDefaultBranch ? '其他条件' : `${parallel ? '并行' : '条件'}${index + 1}`
+    const props = branch.props as ConditionProps
+    props.isDefault = index === branches.length - 1
+    props.priority = props.isDefault ? 0 : priority
+    if (!props.isDefault) {
+      priority += 1
+    }
   })
+}
+
+/**
+ * 新分支列的默认名：在现有最大编号上递增（如已有「条件2」→ 新增「条件3」）。
+ * 编号只增不回收：删除列后新增不会复用被删列的编号。
+ */
+function nextBranchName(branches: WorkflowNode[], parallel: boolean): string {
+  const prefix = parallel ? '并行' : '条件'
+  const pattern = new RegExp(`^${prefix}(\\d+)$`)
+  let max = 0
+  for (const branch of branches) {
+    const matched = pattern.exec(branch.name)
+    if (matched) {
+      max = Math.max(max, Number(matched[1]))
+    }
+  }
+  return `${prefix}${max + 1}`
 }
 
 /** 深拷贝子树并重新生成全部 id */
@@ -144,6 +169,7 @@ interface LegacyConditionProps {
   rules?: LegacyConditionRule[]
   groups?: LegacyConditionGroup[]
   isDefault?: boolean
+  priority?: number
 }
 
 /**
@@ -161,11 +187,87 @@ function migrateConditionProps(node: WorkflowNode): void {
         rules: group.rules.map(normalizeRule),
       })),
       isDefault: legacy.isDefault === true,
+      priority: legacy.priority ?? 0,
     }
     return
   }
   const rules = legacy.rules?.map(normalizeRule) ?? []
-  node.props = { groups: rules.length > 0 ? [{ name: '组1', link: 'AND', rules }] : [], isDefault: legacy.isDefault === true }
+  node.props = {
+    groups: rules.length > 0 ? [{ name: '组1', link: 'AND', rules }] : [],
+    isDefault: legacy.isDefault === true,
+    priority: legacy.priority ?? 0,
+  }
+}
+
+/** 旧草稿里的发起人结构：rangeType 曾为三态（全体 / 成员 / 角色），且无 roleIds */
+interface LegacyStartProps {
+  rangeType?: string
+  memberIds?: string[]
+  roleIds?: string[]
+}
+
+/**
+ * 旧草稿兼容：发起范围收敛为「全体 / 指定」，旧的成员、角色值分别归位到 memberIds / roleIds。
+ */
+function migrateStartProps(node: WorkflowNode): void {
+  const legacy = node.props as LegacyStartProps
+  const memberIds = legacy.memberIds ?? []
+  const roleIds = legacy.roleIds ?? []
+  if (legacy.rangeType === 'ALL') {
+    node.props = { rangeType: 'ALL', memberIds: [], roleIds: [] }
+    return
+  }
+  node.props = legacy.rangeType === 'ROLE'
+    ? { rangeType: 'SPECIFIC', memberIds: [], roleIds: roleIds.length > 0 ? roleIds : memberIds }
+    : { rangeType: 'SPECIFIC', memberIds, roleIds }
+}
+
+/** 旧草稿里的审批人结构：来源曾含 'ROLE'（成员 / 角色二选一），且缺 roleIds / rejectTargetId / buttons */
+interface LegacyApproverProps {
+  source?: string
+  memberIds?: string[]
+  roleIds?: string[]
+  rejectTargetId?: string
+  buttons?: Array<{ key: string; label?: string; enabled?: boolean }>
+}
+
+/**
+ * 旧草稿兼容：审批人来源收敛为「指定」，旧的单选角色值归位到 roleIds，并补齐缺失的 roleIds 与退回目标。
+ */
+function migrateApproverProps(node: WorkflowNode): void {
+  const legacy = node.props as LegacyApproverProps
+  const roleOnly = legacy.source === 'ROLE'
+  const memberIds = legacy.memberIds ?? []
+  const roleIds = legacy.roleIds ?? []
+  node.props = {
+    ...(node.props as object),
+    source: roleOnly ? 'MEMBER' : (legacy.source ?? 'MEMBER'),
+    memberIds: roleOnly ? [] : memberIds,
+    roleIds: roleOnly && roleIds.length === 0 ? memberIds : roleIds,
+    rejectTargetId: legacy.rejectTargetId ?? '',
+    buttons: normalizeApproverButtons(legacy.buttons),
+  } as NodeProps
+}
+
+/** 先序查找从根到目标节点的路径（含目标自身）；命中返回 true，trail 中即为路径 */
+function findTrail(node: WorkflowNode | null, id: string, trail: WorkflowNode[]): boolean {
+  if (!node) {
+    return false
+  }
+  trail.push(node)
+  if (node.id === id) {
+    return true
+  }
+  if (findTrail(node.childNode, id, trail)) {
+    return true
+  }
+  for (const branch of node.conditionNodes ?? []) {
+    if (findTrail(branch, id, trail)) {
+      return true
+    }
+  }
+  trail.pop()
+  return false
 }
 
 /**
@@ -179,6 +281,12 @@ function sanitizeNode(node: WorkflowNode | null): WorkflowNode | null {
   if (node.type === NodeType.CONDITION) {
     migrateConditionProps(node)
   }
+  if (node.type === NodeType.START) {
+    migrateStartProps(node)
+  }
+  if (node.type === NodeType.APPROVER) {
+    migrateApproverProps(node)
+  }
   node.childNode = sanitizeNode(node.childNode)
   if (node.conditionNodes?.length) {
     node.conditionNodes = node.conditionNodes.filter((branch) => {
@@ -188,6 +296,8 @@ function sanitizeNode(node: WorkflowNode | null): WorkflowNode | null {
       branch.childNode = sanitizeNode(branch.childNode)
       return true
     })
+    // 旧草稿可能缺优先级：按当前列顺序重算一次
+    normalizeBranches(node.type, node.conditionNodes)
   }
   return SUPPORTED_NODE_TYPES.has(node.type) ? node : node.childNode
 }
@@ -224,6 +334,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
       first.childNode = createNode(NodeType.APPROVER)
       defaultBranch.childNode = createNode(NodeType.APPROVER)
       node.conditionNodes = [first, defaultBranch]
+      normalizeBranches(NodeType.CONDITIONS, node.conditionNodes)
     } else if (type === NodeType.PARALLEL) {
       // 并行节点初始形态：固定 2 列（无默认列，两列同时执行），每列预置一个审批节点
       node.conditionNodes = [1, 2].map((index) => {
@@ -289,7 +400,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
     }
   }
 
-  /** 分支容器加列：插入到默认列之前（默认列固定最右），随后按位置重建编号 */
+  /** 分支容器加列：插入到默认列之前（默认列固定最右），随后按位置重建条件优先级 */
   function addBranch(containerId: string): WorkflowNode | null {
     const container = findNode(doc.value.root, containerId)
     if (!container || !isBranchContainer(container.type)) {
@@ -297,7 +408,9 @@ export const useWorkflowStore = defineStore('workflow', () => {
     }
     const branches = container.conditionNodes ?? []
     const parallel = container.type === NodeType.PARALLEL
-    const branch = createNode(parallel ? NodeType.PARALLEL_BRANCH : NodeType.CONDITION)
+    const branch = createNode(parallel ? NodeType.PARALLEL_BRANCH : NodeType.CONDITION, {
+      name: nextBranchName(branches, parallel),
+    })
     // 与初始形态保持一致：新列预置一个审批节点，便于直接连线放卡片
     branch.childNode = createNode(NodeType.APPROVER)
     // 默认列固定最右：条件分支插到默认列之前；并行节点无默认列，直接尾插
@@ -356,7 +469,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
     return true
   }
 
-  /** 调整分支列位置：按目标位置重排后统一重建默认身份与编号（默认列恒在最右） */
+  /** 调整分支列位置：按目标位置重排后统一重建默认身份与条件优先级（默认列恒在最右） */
   function moveBranch(id: string, action: BranchMoveAction): boolean {
     const container = findParent(doc.value.root, id)
     const branches = container?.conditionNodes
@@ -375,6 +488,26 @@ export const useWorkflowStore = defineStore('workflow', () => {
     branches.splice(target, 0, moved)
     normalizeBranches(container.type, branches)
     return true
+  }
+
+  /** 可退回的父节点：从根到该节点路径上的发起人 / 审批人节点（不含自身与分支容器） */
+  function getRejectTargets(id: string): WorkflowNode[] {
+    const trail: WorkflowNode[] = []
+    if (!findTrail(doc.value.root, id, trail)) {
+      return []
+    }
+    return trail.filter((node) =>
+      node.id !== id && (node.type === NodeType.START || node.type === NodeType.APPROVER),
+    )
+  }
+
+  /** 同步「谁可以发起」到起始节点（第 1 步基本信息填写后写入，第 2 步发起人节点仅展示） */
+  function updateStartInitiators(payload: StartProps): void {
+    const start = doc.value.root
+    if (!start || start.type !== NodeType.START) {
+      return
+    }
+    start.props = deepClone(payload)
   }
 
   function setActive(id: string | null): void {
@@ -440,6 +573,8 @@ export const useWorkflowStore = defineStore('workflow', () => {
     deleteBranch,
     resolveBranchDeleteAction,
     moveBranch,
+    getRejectTargets,
+    updateStartInitiators,
     setActive,
     setZoom,
     openAddMenu,

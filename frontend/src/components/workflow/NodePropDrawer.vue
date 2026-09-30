@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Plus, Delete } from '@element-plus/icons-vue'
+import { Plus, Delete, EditPen } from '@element-plus/icons-vue'
 import {
+  APPROVER_BUTTON_LABELS,
+  createApproverButtons,
   NodeType,
+  normalizeApproverButtons,
+  type ApproverButtonKey,
   type ApproverProps,
   type ConditionGroup,
   type ConditionProps,
@@ -12,7 +16,7 @@ import {
   type WorkflowNode,
 } from '@/types/workflow'
 import { deepClone } from '@/utils/clone'
-import { MOCK_FIELDS, MOCK_MEMBERS, MOCK_ROLES } from './mock'
+import { MOCK_MEMBERS, MOCK_ROLES } from './mock'
 
 const props = defineProps<{ node: WorkflowNode | null }>()
 
@@ -33,9 +37,20 @@ const TITLE_MAP: Record<string, string> = {
 
 /** 编辑态：名称 + 属性临时副本（保存时一次性提交） */
 const draftName = ref('')
-const draftStart = ref<StartProps>({ rangeType: 'ALL', memberIds: [] })
-const draftApprover = ref<ApproverProps>({ source: 'MEMBER', memberIds: [], leaderLevel: 1, multiMode: 'OR', emptyPolicy: 'AUTO_PASS', canRejectToStart: false })
-const draftCondition = ref<ConditionProps>({ groups: [], isDefault: false })
+const draftStart = ref<StartProps>({ rangeType: 'ALL', memberIds: [], roleIds: [] })
+const draftApprover = ref<ApproverProps>({ source: 'MEMBER', memberIds: [], roleIds: [], leaderLevel: 1, multiMode: 'OR', emptyPolicy: 'AUTO_PASS', canRejectToStart: false, rejectTargetId: '', buttons: createApproverButtons() })
+const draftCondition = ref<ConditionProps>({ groups: [], isDefault: false, priority: 0 })
+
+/** 审批人抽屉的页签：节点设置 / 按钮设置 */
+const approverTab = ref<'NODE' | 'BUTTON'>('NODE')
+
+/** 按钮设置：正在修改显示名称的按钮（null 表示无） */
+const editingButtonKey = ref<ApproverButtonKey | null>(null)
+
+/** 操作按钮的固定名称（左侧「操作按钮」列展示） */
+function buttonLabel(key: ApproverButtonKey): string {
+  return APPROVER_BUTTON_LABELS[key]
+}
 
 watch(
   () => props.node,
@@ -44,20 +59,36 @@ watch(
       return
     }
     draftName.value = node.name
+    approverTab.value = 'NODE'
     // 深拷贝，避免半成品编辑直接污染画布数据；只填充当前节点类型对应的一份草稿
     const raw = deepClone(node.props)
     switch (node.type) {
-      case NodeType.START:
-        draftStart.value = raw as StartProps
+      case NodeType.START: {
+        // 旧草稿可能缺 roleIds，读取时统一补齐
+        const start = raw as StartProps
+        draftStart.value = { rangeType: start.rangeType, memberIds: start.memberIds ?? [], roleIds: start.roleIds ?? [] }
         break
-      case NodeType.APPROVER:
-        draftApprover.value = raw as ApproverProps
+      }
+      case NodeType.APPROVER: {
+        // 旧草稿可能缺 roleIds / rejectTargetId，读取时统一补齐
+        const appr = raw as ApproverProps
+        draftApprover.value = {
+          ...appr,
+          memberIds: appr.memberIds ?? [],
+          roleIds: appr.roleIds ?? [],
+          rejectTargetId: appr.rejectTargetId ?? '',
+          buttons: normalizeApproverButtons(appr.buttons),
+        }
         break
-      case NodeType.CONDITION:
-        draftCondition.value = raw as ConditionProps
+      }
+      case NodeType.CONDITION: {
+        // 旧草稿可能缺 priority，读取时补齐
+        const cond = raw as ConditionProps
+        draftCondition.value = { ...cond, priority: cond.priority ?? 0 }
         break
+      }
       case NodeType.PARALLEL_BRANCH:
-        draftCondition.value = { groups: (raw as ParallelBranchProps).groups ?? [], isDefault: false }
+        draftCondition.value = { groups: (raw as ParallelBranchProps).groups ?? [], isDefault: false, priority: 0 }
         break
       default:
         break
@@ -96,8 +127,7 @@ function handleClose(): void {
 
 /** 条件组 / 条件规则操作（仅改草稿，保存时一次性提交） */
 function createRule(): ConditionRule {
-  const field = MOCK_FIELDS[0]
-  return { fieldKey: field.id, fieldName: field.label, operator: 'GT', value: '', link: 'AND' }
+  return { fieldKey: '', fieldName: '', operator: 'GT', value: '', link: 'AND' }
 }
 
 function addGroup(): void {
@@ -116,6 +146,9 @@ function removeRule(group: ConditionGroup, index: number): void {
   group.rules.splice(index, 1)
 }
 
+/** 「英文名称」聚焦时展示提示；记录当前聚焦的规则，避免多行提示互相干扰 */
+const focusedRule = ref<ConditionRule | null>(null)
+
 /** 新条件组的默认名称「组n」：跳过已被占用的序号 */
 function nextGroupName(): string {
   const used = new Set(draftCondition.value.groups.map((group) => group.name))
@@ -124,14 +157,6 @@ function nextGroupName(): string {
     index += 1
   }
   return `组${index}`
-}
-
-function onFieldChange(rule: ConditionRule, fieldId: string): void {
-  const field = MOCK_FIELDS.find((f) => f.id === fieldId)
-  if (field) {
-    rule.fieldKey = field.id
-    rule.fieldName = field.label
-  }
 }
 
 const OPERATOR_OPTIONS = [
@@ -146,9 +171,8 @@ const OPERATOR_OPTIONS = [
 ]
 
 const SOURCE_OPTIONS = [
-  { value: 'MEMBER', label: '指定成员' },
+  { value: 'MEMBER', label: '指定人员与角色' },
   { value: 'LEADER', label: '主管' },
-  { value: 'ROLE', label: '角色' },
   { value: 'SELF_SELECT', label: '发起人自选' },
   { value: 'INITIATOR', label: '发起人本人' },
 ]
@@ -171,30 +195,43 @@ const EMPTY_POLICY_OPTIONS = [
     @closed="handleClose"
   >
     <div v-if="node" class="wf-drawer-body">
-      <el-form label-width="90px" label-position="left">
+      <!-- 审批人：节点设置 / 按钮设置 -->
+      <el-tabs v-if="node.type === NodeType.APPROVER" v-model="approverTab" class="wf-tabs">
+        <el-tab-pane label="节点设置" name="NODE" />
+        <el-tab-pane label="按钮设置" name="BUTTON" />
+      </el-tabs>
+
+      <el-form v-show="node.type !== NodeType.APPROVER || approverTab === 'NODE'" label-width="90px" label-position="left">
         <el-form-item label="节点名称">
           <el-input v-model="draftName" :disabled="node.type === NodeType.CONDITION && draftCondition.isDefault" maxlength="20" />
         </el-form-item>
 
-        <!-- 发起人 -->
+        <!-- 发起人：与「基本信息」步骤的发起范围控件保持一致，但只读 -->
         <template v-if="node.type === NodeType.START">
-          <el-form-item label="可发起人">
-            <el-radio-group v-model="draftStart.rangeType">
-              <el-radio-button value="ALL">所有人</el-radio-button>
-              <el-radio-button value="MEMBER">指定成员</el-radio-button>
-              <el-radio-button value="ROLE">指定角色</el-radio-button>
+          <el-form-item label="谁可以发起">
+            <el-radio-group v-model="draftStart.rangeType" disabled>
+              <el-radio value="ALL">全体</el-radio>
+              <el-radio value="SPECIFIC">指定</el-radio>
             </el-radio-group>
           </el-form-item>
-          <el-form-item v-if="draftStart.rangeType !== 'ALL'" label="选择范围">
-            <el-select v-model="draftStart.memberIds" multiple filterable placeholder="请选择" style="width: 100%">
-              <el-option
-                v-for="opt in draftStart.rangeType === 'ROLE' ? MOCK_ROLES : MOCK_MEMBERS"
-                :key="opt.id"
-                :label="opt.label"
-                :value="opt.id"
-              />
-            </el-select>
-          </el-form-item>
+          <template v-if="draftStart.rangeType === 'SPECIFIC'">
+            <el-form-item label="指定人员">
+              <el-select v-model="draftStart.memberIds" multiple filterable disabled placeholder="未选择人员" style="width: 100%">
+                <el-option v-for="item in MOCK_MEMBERS" :key="item.id" :label="item.label" :value="item.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="指定角色">
+              <el-select v-model="draftStart.roleIds" multiple filterable disabled placeholder="未选择角色" style="width: 100%">
+                <el-option v-for="item in MOCK_ROLES" :key="item.id" :label="item.label" :value="item.id" />
+              </el-select>
+            </el-form-item>
+          </template>
+          <el-alert
+            type="info"
+            :closable="false"
+            show-icon
+            title="发起人范围由「基本信息」步骤配置，此处不可修改"
+          />
         </template>
 
         <!-- 审批人 -->
@@ -204,16 +241,18 @@ const EMPTY_POLICY_OPTIONS = [
               <el-option v-for="opt in SOURCE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
             </el-select>
           </el-form-item>
-          <el-form-item v-if="draftApprover.source === 'MEMBER' || draftApprover.source === 'ROLE'" label="选择对象">
-            <el-select v-model="draftApprover.memberIds" multiple filterable placeholder="请选择" style="width: 100%">
-              <el-option
-                v-for="opt in draftApprover.source === 'ROLE' ? MOCK_ROLES : MOCK_MEMBERS"
-                :key="opt.id"
-                :label="opt.label"
-                :value="opt.id"
-              />
-            </el-select>
-          </el-form-item>
+          <template v-if="draftApprover.source === 'MEMBER'">
+            <el-form-item label="指定人员">
+              <el-select v-model="draftApprover.memberIds" multiple filterable placeholder="请选择人员" style="width: 100%">
+                <el-option v-for="item in MOCK_MEMBERS" :key="item.id" :label="item.label" :value="item.id" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="指定角色">
+              <el-select v-model="draftApprover.roleIds" multiple filterable placeholder="请选择角色" style="width: 100%">
+                <el-option v-for="item in MOCK_ROLES" :key="item.id" :label="item.label" :value="item.id" />
+              </el-select>
+            </el-form-item>
+          </template>
           <el-form-item v-if="draftApprover.source === 'LEADER'" label="主管层级">
             <el-input-number v-model="draftApprover.leaderLevel" :min="1" :max="10" />
           </el-form-item>
@@ -227,9 +266,6 @@ const EMPTY_POLICY_OPTIONS = [
             <el-select v-model="draftApprover.emptyPolicy" style="width: 100%">
               <el-option v-for="opt in EMPTY_POLICY_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
             </el-select>
-          </el-form-item>
-          <el-form-item label="退回发起">
-            <el-switch v-model="draftApprover.canRejectToStart" active-text="允许退回发起人" />
           </el-form-item>
         </template>
 
@@ -275,10 +311,17 @@ const EMPTY_POLICY_OPTIONS = [
                     </el-select>
                   </div>
                   <div class="wf-rule-row">
-                    <el-select :model-value="rule.fieldKey" style="width: 104px" @update:model-value="onFieldChange(rule, $event)">
-                      <el-option v-for="f in MOCK_FIELDS" :key="f.id" :label="f.label" :value="f.id" />
-                    </el-select>
-                    <el-select v-model="rule.operator" style="width: 104px">
+                    <el-input v-model="rule.fieldName" placeholder="中文名称" style="width: 92px" />
+                    <el-tooltip content="此字段与业务字段需一致" placement="top" :visible="focusedRule === rule">
+                      <el-input
+                        v-model="rule.fieldKey"
+                        placeholder="英文名称"
+                        style="width: 92px"
+                        @focus="focusedRule = rule"
+                        @blur="focusedRule = null"
+                      />
+                    </el-tooltip>
+                    <el-select v-model="rule.operator" style="width: 88px">
                       <el-option v-for="op in OPERATOR_OPTIONS" :key="op.value" :label="op.label" :value="op.value" />
                     </el-select>
                     <el-input v-model="rule.value" placeholder="值" style="flex: 1" />
@@ -292,6 +335,40 @@ const EMPTY_POLICY_OPTIONS = [
           </template>
         </template>
       </el-form>
+
+      <!-- 按钮设置：操作按钮的显示名称与启用开关 -->
+      <div v-if="node.type === NodeType.APPROVER && approverTab === 'BUTTON'" class="wf-button-setting">
+        <div class="wf-tab-title">操作按钮</div>
+        <el-table :data="draftApprover.buttons" size="small" border style="width: 100%">
+          <el-table-column label="操作按钮" width="96">
+            <template #default="{ row }">
+              {{ buttonLabel(row.key) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="显示名称">
+            <template #default="{ row }">
+              <el-input
+                v-if="editingButtonKey === row.key"
+                v-model="row.label"
+                size="small"
+                maxlength="10"
+                autofocus
+                @blur="editingButtonKey = null"
+                @keyup.enter="editingButtonKey = null"
+              />
+              <span v-else class="wf-btn-label">
+                {{ row.label }}
+                <el-icon class="wf-btn-edit" title="修改显示名称" @click="editingButtonKey = row.key"><EditPen /></el-icon>
+              </span>
+            </template>
+          </el-table-column>
+          <el-table-column label="启用" width="72" align="center">
+            <template #default="{ row }">
+              <el-switch v-model="row.enabled" />
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
     </div>
 
     <template #footer>
@@ -304,6 +381,35 @@ const EMPTY_POLICY_OPTIONS = [
 <style scoped>
 .wf-drawer-body {
   padding: 0 4px;
+}
+
+/* 审批人抽屉页签：节点设置 / 按钮设置 */
+.wf-tabs {
+  margin-bottom: 12px;
+}
+
+.wf-tab-title {
+  margin-bottom: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+}
+
+/* 按钮设置：显示名称的只读态 + 编辑图标 */
+.wf-btn-label {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  color: #606266;
+}
+
+.wf-btn-edit {
+  color: #c0c4cc;
+  cursor: pointer;
+}
+
+.wf-btn-edit:hover {
+  color: #409eff;
 }
 
 /* 条件组卡片 */
