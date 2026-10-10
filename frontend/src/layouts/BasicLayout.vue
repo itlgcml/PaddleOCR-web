@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { AlarmClock, CaretBottom, Finished, HomeFilled, Key, OfficeBuilding, Promotion, Reading, SetUp, Stamp, SwitchButton, User, View } from '@element-plus/icons-vue'
+import { AlarmClock, Briefcase, CaretBottom, DocumentChecked, Finished, HomeFilled, Key, Medal, OfficeBuilding, Promotion, Reading, SetUp, Stamp, SwitchButton, User, View } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 
 const ROLE_LABELS: Record<string, string> = { ADMIN: '管理员', USER: '普通用户' }
@@ -16,6 +16,9 @@ const pageTitle = computed(() => route.meta.title || '首页')
 const openedMenus = computed<string[]>(() => {
   if (route.path.startsWith('/approval')) {
     return ['/approval']
+  }
+  if (route.path.startsWith('/business')) {
+    return ['/business']
   }
   if (route.path.startsWith('/system')) {
     return ['/system']
@@ -101,6 +104,20 @@ async function handleCommand(command: string | number | object): Promise<void> {
           <el-menu-item index="/approval/process-config">
             <el-icon><SetUp /></el-icon>
             <span>流程配置</span>
+          </el-menu-item>
+        </el-sub-menu>
+        <el-sub-menu index="/business">
+          <template #title>
+            <el-icon><Briefcase /></el-icon>
+            <span>业务审批</span>
+          </template>
+          <el-menu-item index="/business/law-firm-select">
+            <el-icon><Medal /></el-icon>
+            <span>律所选聘</span>
+          </el-menu-item>
+          <el-menu-item index="/business/contract-sign">
+            <el-icon><DocumentChecked /></el-icon>
+            <span>合同签订</span>
           </el-menu-item>
         </el-sub-menu>
         <el-sub-menu v-if="isAdmin" index="/system">

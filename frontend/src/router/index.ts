@@ -92,6 +92,30 @@ const router = createRouter({
           meta: { requiresAuth: true, title: '流程设计' },
         },
         {
+          path: 'business/law-firm-select',
+          name: 'LawFirmSelect',
+          component: () => import('@/views/lawfirmselect/LawFirmSelectView.vue'),
+          meta: { requiresAuth: true, title: '律所选聘' },
+        },
+        {
+          path: 'business/law-firm-select/create',
+          name: 'LawFirmSelectCreate',
+          component: () => import('@/views/lawfirmselect/LawFirmSelectCreateView.vue'),
+          meta: { requiresAuth: true, title: '新增律所选聘' },
+        },
+        {
+          path: 'business/law-firm-select/edit',
+          name: 'LawFirmSelectEdit',
+          component: () => import('@/views/lawfirmselect/LawFirmSelectEditView.vue'),
+          meta: { requiresAuth: true, title: '编辑律所选聘' },
+        },
+        {
+          path: 'business/contract-sign',
+          name: 'ContractSign',
+          component: () => import('@/views/business/ContractSignView.vue'),
+          meta: { requiresAuth: true, title: '合同签订' },
+        },
+        {
           path: 'system/orgs',
           name: 'OrgManage',
           component: () => import('@/views/system/OrgManageView.vue'),

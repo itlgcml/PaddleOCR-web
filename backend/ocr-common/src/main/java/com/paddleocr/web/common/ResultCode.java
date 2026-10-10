@@ -80,6 +80,10 @@ public enum ResultCode {
     /** 请勿重复提交（分布式锁未获取） */
     PROCESS_REPEAT_SUBMIT(40045, "请勿重复提交"),
 
+    // ---- 律所选聘域 ----
+    /** 律所选聘记录不存在（查无 / 已删） */
+    LAW_FIRM_SELECT_NOT_FOUND(40050, "律所选聘记录不存在"),
+
     // ---- 系统段 ----
     SYSTEM_ERROR(50000, "系统内部错误"),
     DB_ERROR(50001, "数据库操作失败"),

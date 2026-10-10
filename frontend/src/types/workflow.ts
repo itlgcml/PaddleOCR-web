@@ -234,3 +234,34 @@ export function isBranchNode(type: NodeType): boolean {
     || type === NodeType.CONDITION
     || type === NodeType.PARALLEL_BRANCH
 }
+
+/** 加签方向：向前 / 向后 */
+export type AddSignDirection = 'BEFORE' | 'AFTER'
+
+/**
+ * 审批运行时操作按钮标识（工具栏）：
+ * 在审批节点可配置按钮（ApproverButtonKey）之外，另含评论、抄送、取消三个流程级按钮；
+ * 节点配置里拆分的「向前/向后加签」在运行态合并为一个「加签」按钮。
+ */
+export type ApprovalActionKey =
+  | 'PASS'
+  | 'REJECT'
+  | 'COMMENT'
+  | 'COPY'
+  | 'TRANSFER'
+  | 'DELEGATE'
+  | 'ADD_SIGN'
+  | 'RETURN'
+  | 'CANCEL'
+
+/**
+ * 审批操作提交载荷：按操作类型区分字段，调用方据此请求对应接口。
+ * 意见类字段统一为 `comment`（通过/拒绝/转办/委派/加签为审批意见，抄送为抄送意见，退回为退回理由，取消为取消理由）。
+ */
+export type ApprovalActionPayload =
+  | { action: 'PASS' | 'REJECT' | 'COMMENT'; comment: string }
+  | { action: 'COPY'; receiverIds: string[]; comment: string }
+  | { action: 'TRANSFER' | 'DELEGATE'; receiverId: string; comment: string }
+  | { action: 'ADD_SIGN'; receiverId: string; comment: string; direction: AddSignDirection }
+  | { action: 'RETURN'; targetNodeId: string; comment: string }
+  | { action: 'CANCEL'; comment: string }
