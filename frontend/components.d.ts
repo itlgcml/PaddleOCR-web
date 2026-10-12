@@ -53,6 +53,7 @@ declare module 'vue' {
     NodeChain: typeof import('./src/components/workflow/NodeChain.vue')['default']
     NodePropDrawer: typeof import('./src/components/workflow/NodePropDrawer.vue')['default']
     OcrUploadDialog: typeof import('./src/components/OcrUploadDialog.vue')['default']
+    PrincipalSelect: typeof import('./src/components/workflow/PrincipalSelect.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     WorkflowCanvas: typeof import('./src/components/workflow/WorkflowCanvas.vue')['default']

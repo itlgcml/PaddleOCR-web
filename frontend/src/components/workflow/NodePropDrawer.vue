@@ -16,7 +16,7 @@ import {
   type WorkflowNode,
 } from '@/types/workflow'
 import { deepClone } from '@/utils/clone'
-import { MOCK_MEMBERS, MOCK_ROLES } from './mock'
+import PrincipalSelect from './PrincipalSelect.vue'
 
 const props = defineProps<{ node: WorkflowNode | null }>()
 
@@ -216,14 +216,10 @@ const EMPTY_POLICY_OPTIONS = [
           </el-form-item>
           <template v-if="draftStart.rangeType === 'SPECIFIC'">
             <el-form-item label="指定人员">
-              <el-select v-model="draftStart.memberIds" multiple filterable disabled placeholder="未选择人员" style="width: 100%">
-                <el-option v-for="item in MOCK_MEMBERS" :key="item.id" :label="item.label" :value="item.id" />
-              </el-select>
+              <PrincipalSelect v-model="draftStart.memberIds" type="USER" disabled placeholder="未选择人员" />
             </el-form-item>
             <el-form-item label="指定角色">
-              <el-select v-model="draftStart.roleIds" multiple filterable disabled placeholder="未选择角色" style="width: 100%">
-                <el-option v-for="item in MOCK_ROLES" :key="item.id" :label="item.label" :value="item.id" />
-              </el-select>
+              <PrincipalSelect v-model="draftStart.roleIds" type="ROLE" disabled placeholder="未选择角色" />
             </el-form-item>
           </template>
           <el-alert
@@ -243,14 +239,10 @@ const EMPTY_POLICY_OPTIONS = [
           </el-form-item>
           <template v-if="draftApprover.source === 'MEMBER'">
             <el-form-item label="指定人员">
-              <el-select v-model="draftApprover.memberIds" multiple filterable placeholder="请选择人员" style="width: 100%">
-                <el-option v-for="item in MOCK_MEMBERS" :key="item.id" :label="item.label" :value="item.id" />
-              </el-select>
+              <PrincipalSelect v-model="draftApprover.memberIds" type="USER" placeholder="请选择人员" />
             </el-form-item>
             <el-form-item label="指定角色">
-              <el-select v-model="draftApprover.roleIds" multiple filterable placeholder="请选择角色" style="width: 100%">
-                <el-option v-for="item in MOCK_ROLES" :key="item.id" :label="item.label" :value="item.id" />
-              </el-select>
+              <PrincipalSelect v-model="draftApprover.roleIds" type="ROLE" placeholder="请选择角色" />
             </el-form-item>
           </template>
           <el-form-item v-if="draftApprover.source === 'LEADER'" label="主管层级">

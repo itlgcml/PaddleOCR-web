@@ -4,7 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ArrowLeft, ArrowRight, Check, Promotion } from '@element-plus/icons-vue'
 import { useWorkflowStore } from '@/stores/workflow'
-import { MOCK_MEMBERS, MOCK_ROLES } from '@/components/workflow/mock'
+import { warmPrincipalLabels } from '@/composables/usePrincipalOptions'
+import PrincipalSelect from '@/components/workflow/PrincipalSelect.vue'
 import {
   fetchProcessDetail,
   fetchProcessDesign,
@@ -181,6 +182,8 @@ function onVersionChange(value: string | number | boolean | undefined): void {
 }
 
 onMounted(() => {
+  // 预热人员/角色名称缓存：画布与只读态按 id 回显名称（后端无批量查名接口）
+  warmPrincipalLabels()
   if (isEdit.value) {
     void loadEditData()
   } else {
@@ -315,14 +318,10 @@ async function handlePublish(): Promise<void> {
         </el-form-item>
         <template v-if="form.initiatorType === 'SPECIFIC'">
           <el-form-item label="指定人员" prop="initiatorMemberIds">
-            <el-select v-model="form.initiatorMemberIds" multiple filterable placeholder="请选择人员" :disabled="basicInfoLocked" style="width: 100%">
-              <el-option v-for="item in MOCK_MEMBERS" :key="item.id" :label="item.label" :value="item.id" />
-            </el-select>
+            <PrincipalSelect v-model="form.initiatorMemberIds" type="USER" placeholder="请选择人员" :disabled="basicInfoLocked" />
           </el-form-item>
           <el-form-item label="指定角色">
-            <el-select v-model="form.initiatorRoleIds" multiple filterable placeholder="请选择角色" :disabled="basicInfoLocked" style="width: 100%" @change="revalidateInitiatorRange">
-              <el-option v-for="item in MOCK_ROLES" :key="item.id" :label="item.label" :value="item.id" />
-            </el-select>
+            <PrincipalSelect v-model="form.initiatorRoleIds" type="ROLE" placeholder="请选择角色" :disabled="basicInfoLocked" @change="revalidateInitiatorRange" />
           </el-form-item>
         </template>
         <el-form-item label="流程描述" prop="description">

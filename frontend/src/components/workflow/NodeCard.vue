@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { Avatar, Close, CopyDocument, EditPen, Share, User } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
 import { NodeType, type ConditionLogic, type ConditionProps, type WorkflowNode } from '@/types/workflow'
-import { memberLabel } from './mock'
+import { principalLabel } from '@/composables/usePrincipalOptions'
 
 const props = defineProps<{ node: WorkflowNode; active?: boolean }>()
 
@@ -31,7 +31,7 @@ const description = computed<string>(() => {
       if (start.rangeType === 'ALL') {
         return '全体'
       }
-      const names = [...(start.memberIds ?? []), ...(start.roleIds ?? [])].map(memberLabel)
+      const names = [...(start.memberIds ?? []), ...(start.roleIds ?? [])].map(principalLabel)
       return names.length > 0 ? names.join('、') : '未指定'
     }
     case NodeType.APPROVER: {
@@ -45,7 +45,7 @@ const description = computed<string>(() => {
       if (appr.source === 'SELF_SELECT') {
         return '发起人自选'
       }
-      const names = [...(appr.memberIds ?? []), ...(appr.roleIds ?? [])].map(memberLabel)
+      const names = [...(appr.memberIds ?? []), ...(appr.roleIds ?? [])].map(principalLabel)
       return names.length > 0 ? names.join('、') : '请设置审批人'
     }
     case NodeType.CONDITION: {
