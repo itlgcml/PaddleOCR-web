@@ -1,0 +1,78 @@
+package com.paddleocr.web.model.vo;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+import lombok.Data;
+
+import java.io.Serializable;
+import java.time.LocalDateTime;
+import java.util.List;
+
+/**
+ * 审批实例详情 VO
+ *
+ * @author paddleocr
+ * @date 2026-10-12
+ */
+@Data
+@Schema(description = "审批实例详情")
+public class InstanceDetailVO implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    @Schema(description = "实例 ID")
+    private String id;
+
+    @Schema(description = "流程定义 ID")
+    private String processId;
+
+    @Schema(description = "流程编码")
+    private String processCode;
+
+    @Schema(description = "流程名称")
+    private String processName;
+
+    @Schema(description = "发起时的流程版本号，如 v2")
+    private String processVersion;
+
+    @Schema(description = "业务单据类型")
+    private String bizType;
+
+    @Schema(description = "业务单据 ID")
+    private String bizId;
+
+    @Schema(description = "业务标题（发起时冗余快照）")
+    private String bizTitle;
+
+    @Schema(description = "实例状态：RUNNING/COMPLETED/REJECTED/CANCELED")
+    private String status;
+
+    @Schema(description = "发起人 ID")
+    private String startUserId;
+
+    @Schema(description = "发起人名称")
+    private String startUserName;
+
+    @Schema(description = "发起时间")
+    private LocalDateTime startTime;
+
+    @Schema(description = "结束时间")
+    private LocalDateTime finishTime;
+
+    @Schema(description = "表单快照 JSON（详情页业务表单渲染）")
+    private String formSnapshotJson;
+
+    @Schema(description = "版本快照 WorkflowDoc JSON（前端复用 workflow 画布渲染流程图）")
+    private String designJson;
+
+    @Schema(description = "节点进度（画布状态着色）")
+    private List<NodeProgressVO> nodes;
+
+    @Schema(description = "审批记录时间线")
+    private List<TaskRecordVO> records;
+
+    @Schema(description = "当前用户在该实例的待办任务 ID（无则 null）")
+    private String myPendingTaskId;
+
+    @Schema(description = "当前用户是否可撤销（=发起人 且 RUNNING）")
+    private Boolean canCancel;
+}

@@ -80,6 +80,38 @@ public enum ResultCode {
     /** 请勿重复提交（分布式锁未获取） */
     PROCESS_REPEAT_SUBMIT(40045, "请勿重复提交"),
 
+    // ---- 审批流程运行态（实例/任务/抄送；40050 已被律所选聘占用） ----
+    /** 流程不存在或未发布（发起/预览时流程缺失/DRAFT/DISABLED/无已发布版本） */
+    PROCESS_NOT_PUBLISHED(40046, "流程不存在或未发布"),
+    /** 无权发起该流程（发起范围校验失败） */
+    INSTANCE_START_FORBIDDEN(40047, "您无权发起该流程"),
+    /** 业务单据不存在（快照加载失败/已删） */
+    INSTANCE_BIZ_NOT_FOUND(40048, "业务单据不存在"),
+    /** 该单据已有进行中的审批 */
+    INSTANCE_ALREADY_RUNNING(40049, "该单据已有进行中的审批"),
+    /** 审批实例不存在（查无/已删） */
+    INSTANCE_NOT_FOUND(40051, "审批实例不存在"),
+    /** 实例状态不允许该操作 */
+    INSTANCE_STATUS_ILLEGAL(40052, "实例状态不允许该操作"),
+    /** 审批任务不存在（查无/已删） */
+    TASK_NOT_FOUND(40053, "审批任务不存在"),
+    /** 非当前任务的审批人 */
+    TASK_ASSIGNEE_MISMATCH(40054, "您不是该任务的审批人"),
+    /** 任务已被处理（非 PENDING，或签被抢先） */
+    TASK_ALREADY_DONE(40055, "任务已被处理"),
+    /** 退回目标节点不合法 */
+    TASK_RETURN_TARGET_INVALID(40056, "退回目标节点不合法"),
+    /** 转办/委托/加签/抄送目标人员无效或不可用 */
+    TASK_RECEIVER_INVALID(40057, "目标人员无效或不可用"),
+    /** 该节点未启用此操作（按钮 enabled=false） */
+    TASK_ACTION_DISABLED(40058, "该节点未启用此操作"),
+    /** 无权查看该审批（非参与人） */
+    INSTANCE_VIEW_FORBIDDEN(40059, "您无权查看该审批"),
+    /** 单据审批中，禁止编辑或删除 */
+    BIZ_IN_APPROVAL(40060, "单据审批中，禁止编辑或删除"),
+    /** 流程节点不存在（nodeId 不在流程当前发布版本快照中） */
+    PROCESS_NODE_NOT_FOUND(40061, "流程节点不存在"),
+
     // ---- 律所选聘域 ----
     /** 律所选聘记录不存在（查无 / 已删） */
     LAW_FIRM_SELECT_NOT_FOUND(40050, "律所选聘记录不存在"),

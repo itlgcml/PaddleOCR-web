@@ -74,6 +74,12 @@ const router = createRouter({
           meta: { requiresAuth: true, title: '我的已阅' },
         },
         {
+          path: 'approval/detail/:instanceId',
+          name: 'ApprovalInstanceDetail',
+          component: () => import('@/views/approval/InstanceDetailView.vue'),
+          meta: { requiresAuth: true, title: '流程详情' },
+        },
+        {
           path: 'approval/process-config',
           name: 'ApprovalProcessConfig',
           component: () => import('@/views/approval/ProcessConfigView.vue'),

@@ -4,6 +4,8 @@ import { useRouter } from 'vue-router'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import { submitLawFirmSelectCreate } from '@/api/lawfirmselect'
+import SubmitApprovalDrawer from './components/SubmitApprovalDrawer.vue'
+import type { LawFirmSelectSaveDTO } from '@/types/lawfirmselect'
 
 const router = useRouter()
 
@@ -57,6 +59,26 @@ async function submitCreate(): Promise<void> {
     submitting.value = false
   }
 }
+
+const drawerVisible = ref(false)
+/** 提交抽屉用的表单值快照（打开时定值，避免抽屉期间表单变动影响求值与创建） */
+const drawerFormData = ref<LawFirmSelectSaveDTO | null>(null)
+
+/** 打开提交审批抽屉：先校验表单，通过后快照表单值 */
+async function openSubmitDrawer(): Promise<void> {
+  const valid = await formRef.value?.validate().catch(() => false)
+  const amount = form.amount
+  if (!valid || amount == null) {
+    return
+  }
+  drawerFormData.value = { title: form.title, amount, reason: form.reason }
+  drawerVisible.value = true
+}
+
+/** 创建并提交审批成功后回列表（列表可见审批状态） */
+function onSubmitted(): void {
+  goBack()
+}
 </script>
 
 <template>
@@ -95,8 +117,18 @@ async function submitCreate(): Promise<void> {
       <el-form-item>
         <el-button @click="goBack">取消</el-button>
         <el-button type="primary" :loading="submitting" @click="submitCreate">保存</el-button>
+        <el-button type="success" @click="openSubmitDrawer">提交</el-button>
       </el-form-item>
     </el-form>
+
+    <SubmitApprovalDrawer
+      v-if="drawerFormData"
+      v-model="drawerVisible"
+      biz-type="LAW_FIRM_SELECT"
+      :form-data="drawerFormData"
+      :biz-title="drawerFormData.title"
+      @submitted="onSubmitted"
+    />
   </div>
 </template>
 

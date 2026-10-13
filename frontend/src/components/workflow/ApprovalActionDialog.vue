@@ -158,6 +158,7 @@ function beforeClose(done: () => void): void {
             :multiple="field.multiple"
             :placeholder="field.placeholder"
             :disabled="loading"
+            filterable
             class="approval-control"
             @update:model-value="(value: unknown) => onSelect(field.key, value)"
           >

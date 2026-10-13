@@ -5,11 +5,15 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.paddleocr.web.common.BusinessException;
 import com.paddleocr.web.common.ResultCode;
+import com.paddleocr.web.mapper.FlowInstanceMapper;
 import com.paddleocr.web.mapper.LawFirmSelectMapper;
+import com.paddleocr.web.mapper.entity.FlowInstanceDO;
 import com.paddleocr.web.mapper.entity.LawFirmSelectDO;
 import com.paddleocr.web.model.PageResultVO;
 import com.paddleocr.web.model.dto.LawFirmSelectSaveDTO;
 import com.paddleocr.web.model.vo.LawFirmSelectVO;
+import com.paddleocr.web.service.approval.BizType;
+import com.paddleocr.web.service.approval.InstanceStatus;
 import com.paddleocr.web.service.lawfirmselect.LawFirmSelectService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +34,7 @@ import java.util.stream.Collectors;
 public class LawFirmSelectServiceImpl implements LawFirmSelectService {
 
     private final LawFirmSelectMapper lawFirmSelectMapper;
+    private final FlowInstanceMapper flowInstanceMapper;
 
     @Override
     public PageResultVO<LawFirmSelectVO> pageLawFirmSelects(int pageNum, int pageSize, String title) {
@@ -65,6 +70,7 @@ public class LawFirmSelectServiceImpl implements LawFirmSelectService {
     @Override
     public void updateLawFirmSelect(Long id, LawFirmSelectSaveDTO dto) {
         getExistingLawFirmSelect(id);
+        checkNotInApproval(id);
         // 走实体更新触发 AuditMetaObjectHandler 自动填充 updateTime
         LawFirmSelectDO record = new LawFirmSelectDO();
         record.setId(id);
@@ -78,6 +84,7 @@ public class LawFirmSelectServiceImpl implements LawFirmSelectService {
     @Override
     public void removeLawFirmSelect(Long id) {
         LawFirmSelectDO existing = getExistingLawFirmSelect(id);
+        checkNotInApproval(id);
         lawFirmSelectMapper.deleteById(id);
         log.info("律所选聘记录删除成功, id={}, title={}", id, existing.getTitle());
     }
@@ -91,6 +98,19 @@ public class LawFirmSelectServiceImpl implements LawFirmSelectService {
             throw new BusinessException(ResultCode.LAW_FIRM_SELECT_NOT_FOUND);
         }
         return record;
+    }
+
+    /**
+     * 审批中的单据禁止编辑/删除（存在 RUNNING 实例即拦截，40060）
+     */
+    private void checkNotInApproval(Long id) {
+        Long runningCount = flowInstanceMapper.selectCount(new LambdaQueryWrapper<FlowInstanceDO>()
+                .eq(FlowInstanceDO::getBizType, BizType.LAW_FIRM_SELECT)
+                .eq(FlowInstanceDO::getBizId, id)
+                .eq(FlowInstanceDO::getStatus, InstanceStatus.RUNNING));
+        if (runningCount != null && runningCount > 0) {
+            throw new BusinessException(ResultCode.BIZ_IN_APPROVAL);
+        }
     }
 
     /**

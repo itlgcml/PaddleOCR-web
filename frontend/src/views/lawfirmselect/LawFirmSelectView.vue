@@ -3,6 +3,9 @@ import { onMounted, ref, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
 import { Plus, Refresh, Search } from '@element-plus/icons-vue'
 import { fetchLawFirmSelectPage, submitLawFirmSelectRemove } from '@/api/lawfirmselect'
+import { fetchBizApprovalStatus } from '@/api/approval-runtime'
+import type { BizApprovalStatusVO } from '@/types/approval'
+import StartApprovalDialog from '@/views/approval/components/StartApprovalDialog.vue'
 import type { LawFirmSelectVO } from '@/types/lawfirmselect'
 
 const router = useRouter()
@@ -13,6 +16,13 @@ const total = ref(0)
 const pageNum = ref(1)
 const pageSize = ref(10)
 const titleQuery = ref('')
+
+/** bizId → 审批状态（RUNNING 时编辑/删除禁用，与后端 40060 拦截双保险） */
+const approvalStatusMap = shallowRef<Record<string, BizApprovalStatusVO>>({})
+
+/** 发起审批弹窗目标 */
+const startVisible = ref(false)
+const startTarget = shallowRef<LawFirmSelectVO | null>(null)
 
 /** 选聘金额展示：千位分隔 + 固定两位小数 */
 function formatAmount(amount: number): string {
@@ -34,9 +44,63 @@ async function loadRecords(): Promise<void> {
     })
     list.value = page.records
     total.value = page.total
+    approvalStatusMap.value = {}
+    void loadApprovalStatus()
   } finally {
     loading.value = false
   }
+}
+
+/* ---------------- 审批状态 / 提交审批 ---------------- */
+
+function approvalOf(row: LawFirmSelectVO): BizApprovalStatusVO | undefined {
+  return approvalStatusMap.value[row.id]
+}
+
+/** 审批中单据禁止编辑/删除（后端 40060 兜底） */
+function isRunning(row: LawFirmSelectVO): boolean {
+  return approvalOf(row)?.status === 'RUNNING'
+}
+
+/** 审批状态标签（无实例时 undefined → 显示"未提交"） */
+const APPROVAL_TAG_META: Record<string, { label: string; type: 'primary' | 'success' | 'danger' | 'info' }> = {
+  RUNNING: { label: '审批中', type: 'primary' },
+  COMPLETED: { label: '已通过', type: 'success' },
+  REJECTED: { label: '已拒绝', type: 'danger' },
+  CANCELED: { label: '已撤销', type: 'info' },
+}
+
+function approvalTag(row: LawFirmSelectVO): { label: string; type: 'primary' | 'success' | 'danger' | 'info' } | undefined {
+  return APPROVAL_TAG_META[approvalOf(row)?.status ?? '']
+}
+
+/** 后端 bizIds 单次上限 20，分批拉取当页单据审批状态 */
+async function loadApprovalStatus(): Promise<void> {
+  const ids = list.value.map((row) => row.id)
+  if (ids.length === 0) {
+    return
+  }
+  const merged: Record<string, BizApprovalStatusVO> = {}
+  try {
+    for (let start = 0; start < ids.length; start += 20) {
+      const chunk = ids.slice(start, start + 20)
+      const statusMap = await fetchBizApprovalStatus('LAW_FIRM_SELECT', chunk)
+      Object.assign(merged, statusMap)
+    }
+    approvalStatusMap.value = merged
+  } catch {
+    // 失败提示由拦截器统一处理，状态列降级为"未提交"
+  }
+}
+
+function onSubmitApproval(row: LawFirmSelectVO): void {
+  startTarget.value = row
+  startVisible.value = true
+}
+
+/** 发起成功后轻量刷新审批状态列（不整页刷新） */
+function onApprovalStarted(): void {
+  void loadApprovalStatus()
 }
 
 onMounted(() => {
@@ -121,10 +185,43 @@ async function handleRemove(row: LawFirmSelectVO): Promise<void> {
       </el-table-column>
       <el-table-column prop="reason" label="选聘原因" min-width="220" show-overflow-tooltip />
       <el-table-column prop="createTime" label="创建时间" width="170" />
-      <el-table-column label="操作" width="130" align="center">
+      <el-table-column label="审批状态" width="110" align="center">
         <template #default="{ row }">
-          <el-button link type="primary" size="small" @click="openEdit(row as LawFirmSelectVO)">编辑</el-button>
-          <el-button link type="danger" size="small" @click="handleRemove(row as LawFirmSelectVO)">删除</el-button>
+          <el-tag v-if="approvalTag(row as LawFirmSelectVO)" size="small" effect="light" :type="approvalTag(row as LawFirmSelectVO)!.type">
+            {{ approvalTag(row as LawFirmSelectVO)!.label }}
+          </el-tag>
+          <el-tag v-else size="small" type="info" effect="plain">未提交</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="190" align="center">
+        <template #default="{ row }">
+          <el-button
+            link
+            type="primary"
+            size="small"
+            :disabled="isRunning(row as LawFirmSelectVO)"
+            @click="openEdit(row as LawFirmSelectVO)"
+          >
+            编辑
+          </el-button>
+          <el-button
+            link
+            type="danger"
+            size="small"
+            :disabled="isRunning(row as LawFirmSelectVO)"
+            @click="handleRemove(row as LawFirmSelectVO)"
+          >
+            删除
+          </el-button>
+          <el-button
+            link
+            type="primary"
+            size="small"
+            :disabled="isRunning(row as LawFirmSelectVO)"
+            @click="onSubmitApproval(row as LawFirmSelectVO)"
+          >
+            提交审批
+          </el-button>
         </template>
       </el-table-column>
       <template #empty>
@@ -144,6 +241,14 @@ async function handleRemove(row: LawFirmSelectVO): Promise<void> {
         @size-change="changePageSize"
       />
     </div>
+
+    <StartApprovalDialog
+      v-model="startVisible"
+      biz-type="LAW_FIRM_SELECT"
+      :biz-id="startTarget?.id ?? ''"
+      :biz-title="startTarget?.title"
+      @started="onApprovalStarted"
+    />
   </div>
 </template>
 
