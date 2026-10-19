@@ -12,10 +12,14 @@ const props = withDefaults(
     memberOptions?: ActionOption[]
     /** 退回节点下拉选项 */
     nodeOptions?: ActionOption[]
+    /** 人工路由选项（PASS 且下一节点为人工路由/人工并行时非空） */
+    manualRouteOptions?: ActionOption[]
+    /** 人工路由是否多选（人工并行 true） */
+    manualRouteMultiple?: boolean
     /** 提交中：禁用按钮并锁定弹窗 */
     loading?: boolean
   }>(),
-  { actions: undefined, memberOptions: () => [], nodeOptions: () => [], loading: false },
+  { actions: undefined, memberOptions: () => [], nodeOptions: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, loading: false },
 )
 
 const emit = defineEmits<{ (e: 'submit', payload: ApprovalActionPayload): void }>()
@@ -65,6 +69,8 @@ defineExpose({ close })
     :action="activeAction"
     :member-options="memberOptions"
     :node-options="nodeOptions"
+    :manual-route-options="manualRouteOptions"
+    :manual-route-multiple="manualRouteMultiple"
     :loading="loading"
     @submit="emit('submit', $event)"
   />

@@ -7,7 +7,8 @@ import type { LawFirmSelectSaveDTO } from '@/types/lawfirmselect'
 import type { NextApproverVO, NodeApproverPreviewVO, StartableProcessVO } from '@/types/approval'
 
 /**
- * 新增单据"提交审批"抽屉：按表单值预览下一阶段审批人（conditions 真实求值条件分支），
+ * 新增单据"提交审批"抽屉：按表单值预览并设置第一审批阶段（下一节点）审批人
+ * （conditions 真实求值条件分支；并行阶段展开为多节点，按节点名称分开选择，不看下下节点），
  * 确认后创建单据并发起流程（V1 bizType=LAW_FIRM_SELECT）。
  * 与列表页 StartApprovalDialog（已有 bizId 的单据发起）互补，覆盖"边填边提交"场景。
  */
@@ -35,13 +36,9 @@ const submitting = ref(false)
 const processes = shallowRef<StartableProcessVO[]>([])
 const preview = shallowRef<NextApproverVO | null>(null)
 const previewLoading = ref(false)
-/** 发起后第一审批阶段节点（作为预览起点选项快照，切换起点不丢失） */
-const firstNodes = shallowRef<NodeApproverPreviewVO[]>([])
-/** 预览起点：'' = 发起后第一审批阶段；其余 = 以该 nodeId 为起点的下一阶段 */
-const fromNodeId = ref('')
 /** 或签节点选中的审批人（下拉单选，键 nodeId，值 userId） */
 const orPickedMap = reactive<Record<string, string>>({})
-/** 会签节点选中的审批人（下拉多选，键 nodeId，值 userId 列表；切换起点保留各自选择） */
+/** 会签节点选中的审批人（下拉多选，键 nodeId，值 userId 列表） */
 const andPickedMap = reactive<Record<string, string[]>>({})
 
 const selectedProcess = computed(
@@ -55,22 +52,26 @@ const conditions = computed<Record<string, string>>(() => ({
   reason: props.formData.reason,
 }))
 
-/** 抽屉打开时加载可发起流程；唯一流程默认选中并预览审批人 */
-watch(visible, (open) => {
-  if (!open) {
-    return
-  }
-  resetForm()
-  void loadProcesses()
-})
+/** 抽屉打开时加载可发起流程；唯一流程默认选中并预览审批人。
+ *  immediate：首次打开时组件随 v-if 同 tick 挂载且 visible 初始即为 true，
+ *  非 immediate 的 watch 会错过该变化导致流程下拉无数据（首次无法选择）。 */
+watch(
+  visible,
+  (open) => {
+    if (!open) {
+      return
+    }
+    resetForm()
+    void loadProcesses()
+  },
+  { immediate: true },
+)
 
 function resetForm(): void {
   form.processId = ''
   form.ccUserIds = []
   form.comment = ''
   preview.value = null
-  firstNodes.value = []
-  fromNodeId.value = ''
   clearChecked()
 }
 
@@ -100,24 +101,19 @@ async function loadProcesses(): Promise<void> {
   }
 }
 
-/** 按表单值求值条件分支，预览下一阶段审批人；fromNodeId 为空查发起后首阶段，否则查该节点的下一阶段 */
+/** 按表单值求值条件分支，预览发起后第一审批阶段审批人（并行阶段展开为多节点，分别选择） */
 async function loadPreview(): Promise<void> {
   if (!form.processId) {
     preview.value = null
-    firstNodes.value = []
     return
   }
   previewLoading.value = true
   try {
     const result = await fetchNextApprovers({
       processId: form.processId,
-      nodeId: fromNodeId.value || undefined,
       conditions: conditions.value,
     })
     preview.value = result
-    if (!fromNodeId.value) {
-      firstNodes.value = result.nodes
-    }
     initChecked(result.nodes)
   } catch {
     preview.value = null
@@ -138,13 +134,7 @@ function initChecked(nodes: NodeApproverPreviewVO[]): void {
 }
 
 function onProcessChange(): void {
-  fromNodeId.value = ''
   clearChecked()
-  void loadPreview()
-}
-
-/** 切换预览起点节点，带 nodeId 重查该节点的下一阶段审批人 */
-function onFromNodeChange(): void {
   void loadPreview()
 }
 
@@ -231,22 +221,15 @@ async function onSubmit(): Promise<void> {
     <div v-if="form.processId" v-loading="previewLoading" class="drawer-preview">
       <template v-if="preview">
         <template v-if="preview.ended">
-          <div class="drawer-preview-title">
-            {{ fromNodeId ? '该节点之后流程将直接结束（无审批节点）' : '提交后流程将直接结束（无审批节点）' }}
-          </div>
+          <div class="drawer-preview-title">提交后流程将直接结束（无审批节点）</div>
         </template>
         <template v-else>
-          <div class="drawer-preview-from">
-            <span class="drawer-preview-from-label">预览起点</span>
-            <el-radio-group v-model="fromNodeId" size="small" :disabled="submitting" @change="onFromNodeChange">
-              <el-radio-button value="">发起后</el-radio-button>
-              <el-radio-button v-for="node in firstNodes" :key="node.nodeId" :value="node.nodeId">
-                {{ node.nodeName }}
-              </el-radio-button>
-            </el-radio-group>
-          </div>
           <div class="drawer-preview-title">
-            {{ fromNodeId ? '该节点的下一阶段审批人（可搜索选择）' : '提交后第一审批阶段审批人（可搜索选择）' }}
+            {{
+              preview.nodes.length > 1
+                ? '下一阶段为并行节点，请按节点名称分别选择审批人'
+                : '提交后第一审批阶段审批人（可搜索选择）'
+            }}
           </div>
           <div v-for="node in preview.nodes" :key="node.nodeId" class="drawer-preview-node">
             <div class="drawer-preview-node-head">
@@ -331,19 +314,6 @@ async function onSubmit(): Promise<void> {
   font-size: 13px;
   line-height: 22px;
   color: #606266;
-}
-
-.drawer-preview-from {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.drawer-preview-from-label {
-  flex-shrink: 0;
-  font-size: 12px;
-  color: #909399;
 }
 
 .drawer-preview-node {

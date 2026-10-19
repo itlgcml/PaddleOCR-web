@@ -12,10 +12,14 @@ const props = withDefaults(
     memberOptions?: ActionOption[]
     /** 退回节点下拉选项 */
     nodeOptions?: ActionOption[]
+    /** 人工路由选项（PASS 且下一节点为人工路由/人工并行时非空；选中值回传） */
+    manualRouteOptions?: ActionOption[]
+    /** 人工路由是否多选（下一节点为人工并行时 true：多选 routeTargetIds；条件路由单选 routeTargetId） */
+    manualRouteMultiple?: boolean
     /** 提交中：锁定表单与按钮 */
     loading?: boolean
   }>(),
-  { memberOptions: () => [], nodeOptions: () => [], loading: false },
+  { memberOptions: () => [], nodeOptions: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, loading: false },
 )
 
 const emit = defineEmits<{ (e: 'submit', payload: ApprovalActionPayload): void }>()
@@ -27,6 +31,9 @@ type ActionForm = Record<string, FormValue>
 
 const formRef = ref<FormInstance>()
 const form = reactive<ActionForm>({})
+
+/** 人工路由指定审批人（branchId → userId）：仅对所选分支中有候选审批人的分支生效，可选 */
+const routeAssignees = reactive<Record<string, string>>({})
 
 const meta = computed(() => (props.action ? ACTION_META[props.action] : null))
 
@@ -47,6 +54,14 @@ const rules = computed<FormRules>(() => {
       },
     ]
   }
+  if (props.action === 'PASS' && props.manualRouteOptions.length > 0) {
+    if (props.manualRouteMultiple) {
+      // 人工并行：多选分支，值为数组，须显式声明 type 否则空数组不会被判为未填
+      result.routeTargetIds = [{ type: 'array', required: true, message: '请选择要执行的分支', trigger: 'change' }]
+    } else {
+      result.routeTargetId = [{ required: true, message: '请选择下一步', trigger: 'change' }]
+    }
+  }
   return result
 })
 
@@ -59,6 +74,23 @@ watch(
   },
   { immediate: true },
 )
+
+/** 已选分支中带候选审批人的分支：为每个这样的分支渲染一个可选的「审批人」下拉 */
+const assigneeBranches = computed(() => {
+  if (props.action !== 'PASS' || props.manualRouteOptions.length === 0) {
+    return []
+  }
+  const selected = props.manualRouteMultiple
+    ? (Array.isArray(form.routeTargetIds) ? [...(form.routeTargetIds as string[])] : [])
+    : typeof form.routeTargetId === 'string' && form.routeTargetId ? [form.routeTargetId] : []
+  return props.manualRouteOptions.filter(
+    (opt) => selected.includes(opt.id) && (opt.children?.length ?? 0) > 0,
+  )
+})
+
+function setRouteAssignee(branchId: string, value: unknown): void {
+  routeAssignees[branchId] = typeof value === 'string' ? value : ''
+}
 
 /** 每个操作的下拉数据源：退回节点取 nodeOptions，其余取人员 */
 function optionsOf(field: ActionField): ActionOption[] {
@@ -107,6 +139,35 @@ function buildPayload(action: ApprovalActionKey, direction?: AddSignDirection): 
       }
     case 'RETURN':
       return { action: 'RETURN', targetNodeId: text('targetNodeId'), comment: text('comment') }
+    case 'PASS': {
+      const payload: {
+        action: 'PASS'
+        comment: string
+        routeTargetId?: string
+        routeTargetIds?: string[]
+        routeAssignees?: Record<string, string>
+      } = {
+        action: 'PASS',
+        comment: text('comment'),
+      }
+      if (props.manualRouteMultiple) {
+        // 人工并行：多选分支 id 集合
+        const ids = list('routeTargetIds')
+        payload.routeTargetIds = ids.length > 0 ? ids : undefined
+      } else {
+        payload.routeTargetId = text('routeTargetId') || undefined
+      }
+      // 所选分支指定审批人（仅收集当前所选分支的非空值，未选分支的残留不提交）
+      const assignees: Record<string, string> = {}
+      for (const branch of assigneeBranches.value) {
+        const userId = (routeAssignees[branch.id] ?? '').trim()
+        if (userId) {
+          assignees[branch.id] = userId
+        }
+      }
+      payload.routeAssignees = Object.keys(assignees).length > 0 ? assignees : undefined
+      return payload
+    }
     default:
       return { action, comment: text('comment') }
   }
@@ -117,9 +178,14 @@ function resetForm(): void {
   for (const key of Object.keys(form)) {
     delete form[key]
   }
+  for (const key of Object.keys(routeAssignees)) {
+    delete routeAssignees[key]
+  }
   for (const field of meta.value?.fields ?? []) {
     form[field.key] = field.type === 'select' && field.multiple ? [] : ''
   }
+  form.routeTargetId = ''
+  form.routeTargetIds = []
   formRef.value?.clearValidate()
 }
 
@@ -149,6 +215,41 @@ function beforeClose(done: () => void): void {
       class="approval-form"
       @submit.prevent
     >
+      <el-form-item
+        v-if="meta?.key === 'PASS' && manualRouteOptions.length > 0"
+        :label="manualRouteMultiple ? '执行分支' : '下一步'"
+        :prop="manualRouteMultiple ? 'routeTargetIds' : 'routeTargetId'"
+      >
+        <el-select
+          :model-value="manualRouteMultiple ? form.routeTargetIds : form.routeTargetId"
+          :multiple="manualRouteMultiple"
+          :placeholder="manualRouteMultiple ? '请选择要执行的分支（可多选）' : '请选择下一步'"
+          :disabled="loading"
+          class="approval-control"
+          @update:model-value="(value: unknown) => onSelect(manualRouteMultiple ? 'routeTargetIds' : 'routeTargetId', value)"
+        >
+          <el-option v-for="opt in manualRouteOptions" :key="opt.id" :label="opt.label" :value="opt.id" />
+        </el-select>
+      </el-form-item>
+
+      <el-form-item
+        v-for="branch in assigneeBranches"
+        :key="branch.id"
+        :label="`${branch.label}审批人`"
+      >
+        <el-select
+          :model-value="routeAssignees[branch.id] ?? ''"
+          placeholder="默认按节点配置审批（可选）"
+          clearable
+          filterable
+          :disabled="loading"
+          class="approval-control"
+          @update:model-value="(value: unknown) => setRouteAssignee(branch.id, value)"
+        >
+          <el-option v-for="opt in branch.children" :key="opt.id" :label="opt.label" :value="opt.id" />
+        </el-select>
+      </el-form-item>
+
       <el-form-item v-for="field in meta?.fields ?? []" :key="field.key" :label="field.label" :prop="field.key">
         <div class="approval-field">
           <div v-if="field.tip" class="approval-field-tip">{{ field.tip }}</div>

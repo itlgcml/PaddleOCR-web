@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
-import { isBranchContainer, isBranchNode, NodeType } from '@/types/workflow'
+import { isBranchColumn, NodeType } from '@/types/workflow'
 import { useWorkflowStore } from '@/stores/workflow'
 
 const props = defineProps<{ parentId: string; parentType: NodeType }>()
@@ -19,10 +19,10 @@ const MENU: { type: NodeType; label: string; color: string }[] = [
   { type: NodeType.PARALLEL, label: '并行节点', color: '#7C6BFF' },
 ]
 
-/** 分支节点（分支容器 / 分支列）之下必须先接普通节点，故不提供分支类选项 */
+/** 分支列之下必须先接普通节点，故不提供分支类选项；分支容器汇合后可继续接分支容器 */
 const menuItems = computed(() => (
-  isBranchNode(props.parentType)
-    ? MENU.filter((item) => !isBranchContainer(item.type))
+  isBranchColumn(props.parentType)
+    ? MENU.filter((item) => item.type === NodeType.APPROVER)
     : MENU
 ))
 

@@ -83,9 +83,6 @@ export type TaskStatus = 'PENDING' | 'PASSED' | 'REJECTED' | 'CANCELED' | 'TRANS
 /** 任务派生类型：普通 / 前加签 / 后加签 / 转办 / 委托 */
 export type TaskSignType = 'NORMAL' | 'BEFORE_SIGN' | 'AFTER_SIGN' | 'TRANSFER' | 'DELEGATE'
 
-/** 节点进度状态 */
-export type NodeProgressStatus = 'CURRENT' | 'PENDING' | 'PASSED' | 'REJECTED' | 'SKIPPED'
-
 /** 用户简要（审批人 / 抄送人展示，UserBriefVO 镜像） */
 export interface UserBriefVO {
   userId: string
@@ -134,16 +131,6 @@ export interface InstanceItemVO {
   currentApproverNames: string[]
 }
 
-/** 实例节点进度（NodeProgressVO 镜像） */
-export interface NodeProgressVO {
-  nodeId: string
-  nodeName: string
-  nodeType: string
-  status: NodeProgressStatus
-  assigneeNames: string[]
-  finishTime: string | null
-}
-
 /** 审批记录时间线行（含 START/AUTO_PASS/ENGINE 系统动作，TaskRecordVO 镜像） */
 export interface TaskRecordVO {
   id: string
@@ -174,7 +161,6 @@ export interface InstanceDetailVO {
   formSnapshotJson: string | null
   /** 版本快照 WorkflowDoc JSON */
   designJson: string | null
-  nodes: NodeProgressVO[]
   records: TaskRecordVO[]
   /** 当前用户在该实例的待办任务 ID（无则 null） */
   myPendingTaskId: string | null
@@ -188,11 +174,27 @@ export interface ReturnTargetVO {
   nodeName: string
 }
 
-/** 任务办理视图（TaskDetailVO 镜像 = 实例详情 + 任务本体 / 按钮 / 退回目标） */
+/** 人工路由选项（ManualRouteOptionVO 镜像，当前节点通过后需人工选择下一步时非空） */
+export interface ManualRouteOptionVO {
+  /** 分支列 ID，PASS 时作为 routeTargetId 回传 */
+  branchId: string
+  /** 选项名称 */
+  label: string
+  /** 指定审批人目标节点的候选审批人（优先分支列内首个审批节点，空列回退容器后继链首个
+   *  审批节点；跳过直通办理节点，遇嵌套容器为空）：
+   *  非空时选中该分支后渲染可选的「审批人」下拉，选定值经 PASS routeAssignees 回传 */
+  assigneeOptions: UserBriefVO[]
+}
+
+/** 任务办理视图（TaskDetailVO 镜像 = 实例详情 + 任务本体 / 按钮 / 退回目标 / 人工路由选项） */
 export interface TaskDetailVO extends InstanceDetailVO {
   task: TaskVO
   buttons: ApproverButtonVO[]
   returnTargets: ReturnTargetVO[]
+  /** 人工路由选项：非空时 PASS 弹窗渲染「下一步」下拉 */
+  manualRouteOptions: ManualRouteOptionVO[]
+  /** 人工路由是否多选：下一节点为人工并行（PARALLEL routing=MANUAL）时 true，PASS 携带 routeTargetIds 多选 */
+  manualRouteMultiple: boolean
   /** 当前用户=assignee 且任务 PENDING */
   actionable: boolean
 }

@@ -69,6 +69,15 @@ public class ProcessServiceImpl implements ProcessService {
     /** 节点类型：条件分支列 */
     private static final String NODE_TYPE_CONDITION = "CONDITION";
 
+    /** 节点类型：条件分支容器 */
+    private static final String NODE_TYPE_CONDITIONS = "CONDITIONS";
+
+    /** 节点类型：并行节点容器 */
+    private static final String NODE_TYPE_PARALLEL = "PARALLEL";
+
+    /** 条件分支路由模式：人工（上游审批人在 PASS 时选择下一步） */
+    private static final String ROUTING_MANUAL = "MANUAL";
+
     /** 审批人来源-指定成员/角色 */
     private static final String APPROVER_SOURCE_MEMBER = "MEMBER";
 
@@ -390,10 +399,16 @@ public class ProcessServiceImpl implements ProcessService {
      * <ul>
      *     <li>节点 name 非空</li>
      *     <li>APPROVER 且 source=MEMBER 时 memberIds/roleIds 并集非空</li>
-     *     <li>CONDITION 非 isDefault 时规则数为零则报错</li>
+     *     <li>CONDITIONS routing=MANUAL 时：至少 2 个选项、每列 label 非空（前驱不限：非审批人直连时运行态降级自动路由）</li>
+     *     <li>PARALLEL routing=MANUAL 时：至少 2 个分支（前驱不限：非审批人直连时运行态降级全列并行）</li>
+     *     <li>CONDITION 非 isDefault 且所属容器非人工路由时规则数为零则报错</li>
      * </ul>
      */
     private void validateNodeForPublish(JsonNode node) {
+        validateNodeForPublish(node, null);
+    }
+
+    private void validateNodeForPublish(JsonNode node, String parentRouting) {
         if (node == null || node.isMissingNode() || node.isNull()) {
             return;
         }
@@ -402,6 +417,23 @@ public class ProcessServiceImpl implements ProcessService {
         }
         String type = node.path("type").asText();
         JsonNode props = node.path("props");
+        String routing = null;
+        if (NODE_TYPE_CONDITIONS.equals(type)) {
+            routing = props.path("routing").asText("AUTO");
+            if (ROUTING_MANUAL.equals(routing)) {
+                validateManualRouting(node);
+            }
+        }
+        if (NODE_TYPE_PARALLEL.equals(type)) {
+            routing = props.path("routing").asText("AUTO");
+            if (ROUTING_MANUAL.equals(routing)) {
+                JsonNode columns = node.path("conditionNodes");
+                if (!columns.isArray() || columns.size() < 2) {
+                    throw new BusinessException(ResultCode.PROCESS_DESIGN_INVALID,
+                            "人工并行节点「" + node.path("name").asText() + "」至少需要 2 个分支");
+                }
+            }
+        }
         if (NODE_TYPE_APPROVER.equals(type) && APPROVER_SOURCE_MEMBER.equals(props.path("source").asText())) {
             if (props.path("memberIds").size() + props.path("roleIds").size() == 0) {
                 throw new BusinessException(ResultCode.PROCESS_DESIGN_INVALID,
@@ -409,15 +441,33 @@ public class ProcessServiceImpl implements ProcessService {
             }
         }
         if (NODE_TYPE_CONDITION.equals(type) && !props.path("isDefault").asBoolean(false)) {
-            if (countConditionRules(props) == 0) {
+            // 人工路由容器下的分支列以 label 表达选项，不做规则校验（label 已在 validateManualRouting 统一校验）
+            if (!ROUTING_MANUAL.equals(parentRouting) && countConditionRules(props) == 0) {
                 throw new BusinessException(ResultCode.PROCESS_DESIGN_INVALID,
                         "条件「" + node.path("name").asText() + "」未配置规则");
             }
         }
         for (JsonNode branch : node.path("conditionNodes")) {
-            validateNodeForPublish(branch);
+            validateNodeForPublish(branch, routing);
         }
-        validateNodeForPublish(node.path("childNode"));
+        validateNodeForPublish(node.path("childNode"), parentRouting);
+    }
+
+    /**
+     * 人工路由节点校验：至少 2 个选项，且每个分支列配置了选项名称（label）
+     */
+    private void validateManualRouting(JsonNode conditionsNode) {
+        JsonNode columns = conditionsNode.path("conditionNodes");
+        if (!columns.isArray() || columns.size() < 2) {
+            throw new BusinessException(ResultCode.PROCESS_DESIGN_INVALID,
+                    "人工路由节点「" + conditionsNode.path("name").asText() + "」至少需要 2 个选项");
+        }
+        for (JsonNode column : columns) {
+            if (StrUtil.isBlank(column.path("props").path("label").asText())) {
+                throw new BusinessException(ResultCode.PROCESS_DESIGN_INVALID,
+                        "人工路由节点「" + conditionsNode.path("name").asText() + "」存在未命名的选项");
+            }
+        }
     }
 
     /**

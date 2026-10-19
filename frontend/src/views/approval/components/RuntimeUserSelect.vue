@@ -45,6 +45,13 @@ async function search(keyword: string): Promise<void> {
 
 const debouncedSearch = useDebounceFn(search, 300)
 
+/** 首次聚焦且尚无选项时预拉一页，避免打开下拉空白（模板中 ref 已自动解包，不能写 options.value） */
+function onFocus(): void {
+  if (options.value.length === 0) {
+    void search('')
+  }
+}
+
 /** 合并缓存与搜索结果（缓存优先级低，仅用于补回显项） */
 function mergedOptions(): Array<{ userId: string; name: string }> {
   const map = new Map<string, UserBriefVO>()
@@ -90,7 +97,7 @@ search('')
     collapse-tags
     collapse-tags-tooltip
     class="runtime-user-select"
-    @focus="() => options.value.length === 0 && search('')"
+    @focus="onFocus"
   >
     <el-option
       v-for="option in mergedOptions()"

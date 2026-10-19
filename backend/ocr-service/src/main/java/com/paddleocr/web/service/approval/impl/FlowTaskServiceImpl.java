@@ -12,12 +12,16 @@ import com.paddleocr.web.model.PageResultVO;
 import com.paddleocr.web.model.dto.RuntimePageQuery;
 import com.paddleocr.web.model.dto.TaskActionDTO;
 import com.paddleocr.web.model.vo.InstanceDetailVO;
+import com.paddleocr.web.model.vo.ManualRouteOptionVO;
 import com.paddleocr.web.model.vo.ReturnTargetVO;
 import com.paddleocr.web.model.vo.TaskDetailVO;
 import com.paddleocr.web.model.vo.TaskVO;
+import com.paddleocr.web.model.vo.UserBriefVO;
 import com.paddleocr.web.service.approval.FlowInstanceService;
 import com.paddleocr.web.service.approval.FlowTaskService;
 import com.paddleocr.web.service.approval.TaskStatus;
+import com.paddleocr.web.service.approval.engine.FlowApproverResolver;
+import com.paddleocr.web.service.approval.engine.FlowApproverResolver.Resolved;
 import com.paddleocr.web.service.approval.engine.FlowDesignCursor;
 import com.paddleocr.web.service.approval.engine.FlowEngine;
 import com.paddleocr.web.service.approval.engine.FlowEngineSupport;
@@ -34,8 +38,14 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.TYPE_APPROVER;
+import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.branchColumns;
+import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.chainNext;
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.idOf;
+import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.isManualParallel;
+import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.isManualRouting;
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.nameOf;
+import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.propsOf;
+import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.routeAssigneeTarget;
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.typeOf;
 
 /**
@@ -54,6 +64,7 @@ public class FlowTaskServiceImpl implements FlowTaskService {
     private final FlowInstanceMapper flowInstanceMapper;
     private final FlowEngineSupport support;
     private final FlowEngine engine;
+    private final FlowApproverResolver resolver;
     private final FlowInstanceService flowInstanceService;
 
     @Override
@@ -92,10 +103,15 @@ public class FlowTaskServiceImpl implements FlowTaskService {
                 instance == null ? null : support.loadVersionDesignJson(instance.getProcessVersionId()));
         vo.setButtons(Collections.emptyList());
         vo.setReturnTargets(Collections.emptyList());
+        vo.setManualRouteOptions(Collections.emptyList());
+        vo.setManualRouteMultiple(false);
         if (cursor != null) {
             JsonNode node = cursor.findNode(task.getNodeId());
             vo.setButtons(support.readButtons(node));
             vo.setReturnTargets(buildReturnTargets(cursor, node, task));
+            vo.setManualRouteOptions(buildManualRouteOptions(node,
+                    instance == null ? null : instance.getStartUserId()));
+            vo.setManualRouteMultiple(node != null && isManualParallel(chainNext(node)));
         }
         vo.setActionable(userId.equals(task.getAssigneeId())
                 && TaskStatus.PENDING.equals(task.getStatus()));
@@ -205,5 +221,59 @@ public class FlowTaskServiceImpl implements FlowTaskService {
             targets.add(vo);
         }
         return targets;
+    }
+
+    /**
+     * 人工路由选项：当前任务节点（APPROVER）的链后继若为人工路由（CONDITIONS MANUAL，单选）或
+     * 人工并行（PARALLEL MANUAL，多选）节点，则返回其全部分支列选项（branchId=分支列 id，
+     * label=选项名——条件分支列取 props.label，并行分支列无 label 回退列名）；
+     * assigneeOptions=指定审批人目标节点的候选审批人（可据此在 PASS 时指定该分支的审批人）。
+     * 否则返回空列表。
+     */
+    private List<ManualRouteOptionVO> buildManualRouteOptions(JsonNode node, Long startUserId) {
+        if (node == null) {
+            return Collections.emptyList();
+        }
+        JsonNode next = chainNext(node);
+        if (!isManualRouting(next) && !isManualParallel(next)) {
+            return Collections.emptyList();
+        }
+        List<ManualRouteOptionVO> options = new ArrayList<>();
+        for (JsonNode column : branchColumns(next)) {
+            ManualRouteOptionVO option = new ManualRouteOptionVO();
+            option.setBranchId(idOf(column));
+            String label = propsOf(column).path("label").asText("");
+            option.setLabel(label.isEmpty() ? nameOf(column) : label);
+            option.setAssigneeOptions(buildAssigneeOptions(column, next, startUserId));
+            options.add(option);
+        }
+        return options;
+    }
+
+    /**
+     * 指定审批人目标节点的候选审批人：优先分支列内首个审批节点；列内无审批节点（空列或
+     * 仅直通办理节点，引擎推进将汇合到容器后继）时回退容器后继链上的首个审批节点，
+     * 与引擎流转落点及覆盖登记（routeAssigneeTarget）同口径，保证候选集即校验集。
+     * 定位到目标后按节点配置解析（与引擎 resolve 同口径）；遇嵌套分支容器或链尾无审批
+     * 节点返回空列表——审批人不唯一/不存在，前端不渲染指定审批人下拉，运行时按默认解析。
+     * 候选为空（如 LEADER/SELF_SELECT 降级）同样返回空列表，运行时仍按 emptyPolicy 兜底。
+     */
+    private List<UserBriefVO> buildAssigneeOptions(JsonNode column, JsonNode container, Long startUserId) {
+        if (startUserId == null) {
+            return Collections.emptyList();
+        }
+        JsonNode firstApprover = routeAssigneeTarget(column, container);
+        if (firstApprover == null) {
+            return Collections.emptyList();
+        }
+        Resolved resolved = resolver.resolve(firstApprover, startUserId);
+        List<UserBriefVO> users = new ArrayList<>(resolved.getUsers().size());
+        for (UserDO user : resolved.getUsers()) {
+            UserBriefVO brief = new UserBriefVO();
+            brief.setUserId(String.valueOf(user.getId()));
+            brief.setName(FlowApproverResolver.displayName(user));
+            users.add(brief);
+        }
+        return users;
     }
 }

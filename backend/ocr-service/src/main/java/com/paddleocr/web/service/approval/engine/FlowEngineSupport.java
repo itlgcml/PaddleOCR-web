@@ -25,6 +25,7 @@ import com.paddleocr.web.service.approval.ProcessStatus;
 import com.paddleocr.web.service.approval.TaskAction;
 import com.paddleocr.web.service.approval.TaskStatus;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -50,6 +51,7 @@ import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.typeOf;
  * @author paddleocr
  * @date 2026-10-12
  */
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class FlowEngineSupport {
@@ -59,6 +61,9 @@ public class FlowEngineSupport {
     private static final String SYSTEM_USER_NAME = "系统自动";
 
     private static final String SIGN_NORMAL = "NORMAL";
+
+    /** flow_task_log.detail 列宽 */
+    private static final int DETAIL_MAX_LENGTH = 512;
 
     private final FlowInstanceMapper flowInstanceMapper;
     private final FlowTaskMapper flowTaskMapper;
@@ -413,10 +418,12 @@ public class FlowEngineSupport {
     // ==================== 日志与抄送 ====================
 
     /**
-     * 写审批记录（operator 为 null 时记 系统自动；node 可为 null）
+     * 暂存本次操作待落库的审批记录（operator 为 null 时记 系统自动；node 可为 null）。
+     * 每次操作仅暂存一条，推进过程产生的系统说明经 addEngineNote 收集，
+     * 由 flushActionLog 聚合进 detail 后一次性落库。
      */
-    public void writeLog(EngineCtx ctx, FlowTaskDO task, JsonNode node, String action,
-                         UserDO operator, String comment, String detail) {
+    public void stageActionLog(EngineCtx ctx, FlowTaskDO task, JsonNode node, String action,
+                               UserDO operator, String comment, String detail) {
         FlowTaskLogDO logRecord = new FlowTaskLogDO();
         logRecord.setInstanceId(ctx.getInstance().getId());
         logRecord.setTaskId(task == null ? null : task.getId());
@@ -427,6 +434,41 @@ public class FlowEngineSupport {
         logRecord.setOperatorName(operator == null ? SYSTEM_USER_NAME : FlowApproverResolver.displayName(operator));
         logRecord.setComment(comment);
         logRecord.setDetail(detail);
+        ctx.setPendingActionLog(logRecord);
+    }
+
+    /**
+     * 收集引擎系统说明（降级/自动通过/汇合/退回等）：拼入本次操作记录 detail，不单独成记录；
+     * node 非空时自动加【节点名】前缀标识发生位置
+     */
+    public void addEngineNote(EngineCtx ctx, JsonNode node, String note) {
+        ctx.getEngineNotes().add(node == null ? note : "【" + nameOf(node) + "】" + note);
+    }
+
+    /**
+     * 落库本次操作审批记录（每次操作仅一条）：操作 detail 与系统说明按序拼接（"；"分隔），
+     * 超出列宽 512 时截断（截断尾部补省略标记）
+     */
+    public void flushActionLog(EngineCtx ctx) {
+        FlowTaskLogDO logRecord = ctx.getPendingActionLog();
+        ctx.setPendingActionLog(null);
+        List<String> notes = ctx.getEngineNotes();
+        if (logRecord == null) {
+            if (!notes.isEmpty()) {
+                log.warn("引擎说明无宿主操作记录被丢弃, instanceId={}, notes={}", ctx.getInstance().getId(), notes);
+            }
+            notes.clear();
+            return;
+        }
+        if (!notes.isEmpty()) {
+            String extra = String.join("；", notes);
+            logRecord.setDetail(logRecord.getDetail() == null || logRecord.getDetail().isEmpty()
+                    ? extra : logRecord.getDetail() + "；" + extra);
+            notes.clear();
+        }
+        if (logRecord.getDetail() != null && logRecord.getDetail().length() > DETAIL_MAX_LENGTH) {
+            logRecord.setDetail(logRecord.getDetail().substring(0, DETAIL_MAX_LENGTH - 1) + "…");
+        }
         flowTaskLogMapper.insert(logRecord);
     }
 

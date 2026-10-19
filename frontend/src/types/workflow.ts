@@ -158,6 +158,17 @@ export interface ConditionProps {
   isDefault: boolean
   /** 条件优先级：按列位置从 1 递增；默认列（其他条件）恒为 0，不参与排序 */
   priority: number
+  /** 人工路由模式下的选项名称（仅父容器 routing=MANUAL 时生效） */
+  label?: string
+}
+
+/** 分支容器属性（CONDITIONS 条件分支 / PARALLEL 并行共用）：路由方式 */
+export interface ConditionsProps {
+  /**
+   * 路由方式：AUTO=缺省自动（CONDITIONS 按条件自动求值单选；PARALLEL 全部分支无条件并行）；
+   * MANUAL=人工（上游审批人在通过时选择：CONDITIONS 单选 routeTargetId，PARALLEL 多选 routeTargetIds）
+   */
+  routing: 'AUTO' | 'MANUAL'
 }
 
 /** 并行分支列属性 */
@@ -169,10 +180,11 @@ export interface ParallelBranchProps {
 /** 分支列移动动作：移到最左 / 左移一级 / 右移一级 / 移到最右 */
 export type BranchMoveAction = 'FIRST' | 'PREV' | 'NEXT' | 'LAST'
 
-/** 分支列删除动作：只删该列 / 删除整个条件分支节点 / 删除整个并行节点 / 不可删除 */
-export type BranchDeleteAction = 'COLUMN' | 'BRANCH' | 'PARALLEL' | 'NONE'
+/** 分支列删除动作：只删该列 / 删除整个条件分支节点 / 删除整个并行节点 / 不可删除 /
+ *  仅清空列内审批节点（人工路由 ≤2 列时不解散容器，分支列与选项配置保留） */
+export type BranchDeleteAction = 'COLUMN' | 'BRANCH' | 'PARALLEL' | 'CLEAR' | 'NONE'
 
-export type NodeProps = StartProps | ApproverProps | ConditionProps | ParallelBranchProps | Record<string, never>
+export type NodeProps = StartProps | ApproverProps | ConditionsProps | ConditionProps | ParallelBranchProps | Record<string, never>
 
 /** 流程节点（递归结构：主干 childNode 串联，分支 conditionNodes 横向展开） */
 export interface WorkflowNode {
@@ -214,8 +226,11 @@ export function createNodeProps(type: NodeType): NodeProps {
         rejectTargetId: '',
         buttons: createApproverButtons(),
       }
+    case NodeType.CONDITIONS:
+    case NodeType.PARALLEL:
+      return { routing: 'AUTO' }
     case NodeType.CONDITION:
-      return { groups: [], isDefault: false, priority: 0 }
+      return { groups: [], isDefault: false, priority: 0, label: '' }
     case NodeType.PARALLEL_BRANCH:
       return { groups: [] }
     default:
@@ -228,11 +243,9 @@ export function isBranchContainer(type: NodeType): boolean {
   return type === NodeType.CONDITIONS || type === NodeType.PARALLEL
 }
 
-/** 是否为分支节点（分支容器或其分支列）：这类节点之下不允许直接再挂分支容器 */
-export function isBranchNode(type: NodeType): boolean {
-  return isBranchContainer(type)
-    || type === NodeType.CONDITION
-    || type === NodeType.PARALLEL_BRANCH
+/** 是否为分支列（条件列 / 并行列）：列内首节点必须是普通节点，不允许直接再挂分支容器 */
+export function isBranchColumn(type: NodeType): boolean {
+  return type === NodeType.CONDITION || type === NodeType.PARALLEL_BRANCH
 }
 
 /** 加签方向：向前 / 向后 */
@@ -259,7 +272,8 @@ export type ApprovalActionKey =
  * 意见类字段统一为 `comment`（通过/拒绝/转办/委派/加签为审批意见，抄送为抄送意见，退回为退回理由，取消为取消理由）。
  */
 export type ApprovalActionPayload =
-  | { action: 'PASS' | 'REJECT' | 'COMMENT'; comment: string }
+  | { action: 'PASS'; comment: string; routeTargetId?: string; routeTargetIds?: string[]; routeAssignees?: Record<string, string> }
+  | { action: 'REJECT' | 'COMMENT'; comment: string }
   | { action: 'COPY'; receiverIds: string[]; comment: string }
   | { action: 'TRANSFER' | 'DELEGATE'; receiverId: string; comment: string }
   | { action: 'ADD_SIGN'; receiverId: string; comment: string; direction: AddSignDirection }

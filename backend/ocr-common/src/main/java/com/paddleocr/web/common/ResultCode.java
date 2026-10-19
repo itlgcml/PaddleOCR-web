@@ -111,6 +111,10 @@ public enum ResultCode {
     BIZ_IN_APPROVAL(40060, "单据审批中，禁止编辑或删除"),
     /** 流程节点不存在（nodeId 不在流程当前发布版本快照中） */
     PROCESS_NODE_NOT_FOUND(40061, "流程节点不存在"),
+    /** 人工路由节点未选择下一步（PASS 未携带 routeTargetId） */
+    TASK_MANUAL_ROUTE_REQUIRED(40062, "请选择下一步审批"),
+    /** 人工路由目标不合法（routeTargetId 不是该人工路由节点的分支列） */
+    TASK_MANUAL_ROUTE_INVALID(40063, "人工路由目标不合法"),
 
     // ---- 律所选聘域 ----
     /** 律所选聘记录不存在（查无 / 已删） */

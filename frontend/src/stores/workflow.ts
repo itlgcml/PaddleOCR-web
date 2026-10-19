@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { deepClone } from '@/utils/clone'
-import { createNodeProps, isBranchContainer, NodeType, normalizeApproverButtons, type BranchDeleteAction, type BranchMoveAction, type ConditionLogic, type ConditionProps, type ConditionRule, type NodeProps, type NodeType as NodeTypeT, type StartProps, type WorkflowDoc, type WorkflowNode } from '@/types/workflow'
+import { createNodeProps, isBranchContainer, NodeType, normalizeApproverButtons, type BranchDeleteAction, type BranchMoveAction, type ConditionLogic, type ConditionProps, type ConditionRule, type ConditionsProps, type NodeProps, type NodeType as NodeTypeT, type StartProps, type WorkflowDoc, type WorkflowNode } from '@/types/workflow'
 
 /** 默认节点名 */
 const DEFAULT_NAMES: Record<string, string> = {
@@ -81,8 +81,8 @@ function findParentInList(list: WorkflowNode[], id: string): WorkflowNode | null
 }
 
 /**
- * 分支容器保留的最小列数：低于或等于该值再删单列已无意义（条件分支 = 1 条件 + 1 默认），
- * 此时删除改为整体移除该分支节点，避免留下无法再删的死状态。
+ * 分支容器保留的最小列数：删至该规模再删单列时分支结构已无意义（条件分支 = 1 条件 + 1 默认），
+ * 此时删除该列将解散整个分支节点（仅删被点列，剩余列子流程提升到主干），避免留下单列死状态。
  */
 const MIN_BRANCH_COLUMNS = 2
 
@@ -427,7 +427,9 @@ export const useWorkflowStore = defineStore('workflow', () => {
 
   /**
    * 判定分支列的删除动作（供 UI 决定确认文案与提示）：
-   * 已达最小规模时删除的是整个分支容器——条件分支返回 BRANCH、并行节点返回 PARALLEL；
+   * 已达最小规模（≤2 列）时——人工路由（routing=MANUAL）返回 CLEAR：仅清空该列内审批节点，
+   * 分支列与选项配置保留（发布校验要求 MANUAL ≥2 列，不删列不解散容器）；
+   * 自动路由返回 BRANCH/PARALLEL：删除该列将解散整个分支容器（仅删被点列及其子流程，剩余列子流程提升到主干）。
    * 多列形态下默认条件列不可删（NONE），其余列只删自身（COLUMN）。
    */
   function resolveBranchDeleteAction(id: string): BranchDeleteAction {
@@ -441,12 +443,16 @@ export const useWorkflowStore = defineStore('workflow', () => {
       return 'NONE'
     }
     if (branches.length <= MIN_BRANCH_COLUMNS) {
+      if ((container.props as ConditionsProps).routing === 'MANUAL') {
+        return 'CLEAR'
+      }
       return container.type === NodeType.PARALLEL ? 'PARALLEL' : 'BRANCH'
     }
     return (branches[idx].props as ConditionProps).isDefault ? 'NONE' : 'COLUMN'
   }
 
-  /** 删除分支列；需要时整体删除该分支容器（条件分支 / 并行节点），主干自动接驳 */
+  /** 删除分支列；仅剩 2 列时删列 = 删该列及其子流程并解散分支结构：剩余列子流程提升到主干，未删列内容不丢失；
+   *  人工路由（MANUAL）仅剩 2 列时不删列不解散容器，仅清空被点列内的审批节点子链（CLEAR）。 */
   function deleteBranch(id: string): boolean {
     const action = resolveBranchDeleteAction(id)
     if (action === 'NONE') {
@@ -456,14 +462,47 @@ export const useWorkflowStore = defineStore('workflow', () => {
     if (!container) {
       return false
     }
-    if (action === 'BRANCH' || action === 'PARALLEL') {
-      if (activeNodeId.value === id) {
-        activeNodeId.value = null
-      }
-      return deleteNode(container.id)
-    }
     const branches = container.conditionNodes ?? []
     const idx = branches.findIndex((b) => b.id === id)
+    if (idx < 0) {
+      return false
+    }
+    if (action === 'CLEAR') {
+      // 人工路由：仅删除该列内的审批节点（含子链），分支列与选项 label 保留，可重新添加审批节点
+      branches[idx].childNode = null
+      if (activeNodeId.value && !findNode(doc.value.root, activeNodeId.value)) {
+        activeNodeId.value = null
+      }
+      return true
+    }
+    if (action === 'BRANCH' || action === 'PARALLEL') {
+      // 先摘除被删列（连同其子流程）
+      branches.splice(idx, 1)
+      const remain = branches[0]
+      if (remain) {
+        // 剩列子流程提升到主干：其链尾接驳容器原汇合后继（容器的 childNode）
+        let tail = remain.childNode ?? null
+        if (tail) {
+          while (tail.childNode) {
+            tail = tail.childNode
+          }
+          tail.childNode = container.childNode ?? null
+        }
+        // 容器只会出现在链位置（父级 childNode）：整棵替换为剩列子流程；剩列为空链时直接接容器后继
+        const parent = findParent(doc.value.root, container.id)
+        if (!parent || parent.childNode?.id !== container.id) {
+          return false
+        }
+        parent.childNode = remain.childNode ?? container.childNode ?? null
+      } else {
+        // 无剩列（异常兜底）：等价整体移除容器
+        return deleteNode(container.id)
+      }
+      if (activeNodeId.value && !findNode(doc.value.root, activeNodeId.value)) {
+        activeNodeId.value = null
+      }
+      return true
+    }
     branches.splice(idx, 1)
     normalizeBranches(container.type, branches)
     return true
@@ -488,6 +527,15 @@ export const useWorkflowStore = defineStore('workflow', () => {
     branches.splice(target, 0, moved)
     normalizeBranches(container.type, branches)
     return true
+  }
+
+  /** 分支列（CONDITION/PARALLEL_BRANCH）所属容器（CONDITIONS/PARALLEL）的路由方式；非分支列或找不到返回 null（旧数据缺省按 AUTO） */
+  function conditionsRoutingOf(conditionId: string): 'AUTO' | 'MANUAL' | null {
+    const parent = findParent(doc.value.root, conditionId)
+    if (!parent || (parent.type !== NodeType.CONDITIONS && parent.type !== NodeType.PARALLEL)) {
+      return null
+    }
+    return (parent.props as ConditionsProps).routing ?? 'AUTO'
   }
 
   /** 可退回的父节点：从根到该节点路径上的发起人 / 审批人节点（不含自身与分支容器） */
@@ -574,6 +622,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
     resolveBranchDeleteAction,
     moveBranch,
     getRejectTargets,
+    conditionsRoutingOf,
     updateStartInitiators,
     setActive,
     setZoom,

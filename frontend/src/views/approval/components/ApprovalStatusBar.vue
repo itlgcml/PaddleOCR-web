@@ -6,6 +6,7 @@ import { fetchPrincipalUsers } from '@/api/approval-runtime'
 import type { PrincipalOption } from '@/composables/usePrincipalOptions'
 import type { ApprovalActionKey, ApprovalActionPayload } from '@/types/workflow'
 import type { ApproverButtonVO, ReturnTargetVO, TaskActionPayload } from '@/api/approval-runtime'
+import type { ManualRouteOptionVO } from '@/types/approval'
 
 /**
  * 运行态操作栏：节点按钮快照 → ApprovalActionKey 列表（COMMENT/COPY 恒可用，与后端口径一致）；
@@ -15,6 +16,8 @@ import type { ApproverButtonVO, ReturnTargetVO, TaskActionPayload } from '@/api/
 const props = defineProps<{
   buttons: ApproverButtonVO[]
   returnTargets: ReturnTargetVO[]
+  manualRouteOptions: ManualRouteOptionVO[]
+  manualRouteMultiple: boolean
   canCancel: boolean
   loading: boolean
 }>()
@@ -80,6 +83,16 @@ const nodeOptions = computed<PrincipalOption[]>(() =>
   props.returnTargets.map((target) => ({ id: target.nodeId, label: target.nodeName, sub: '' })),
 )
 
+/** 人工路由选项（当前节点通过后需人工选择下一步时非空）；children=分支列内首个审批节点候选审批人 */
+const routeOptions = computed<(PrincipalOption & { children?: PrincipalOption[] })[]>(() =>
+  props.manualRouteOptions.map((opt) => {
+    const children = opt.assigneeOptions.map((user) => ({ id: user.userId, label: user.name, sub: '' }))
+    return children.length > 0
+      ? { id: opt.branchId, label: opt.label, sub: '', children }
+      : { id: opt.branchId, label: opt.label, sub: '' }
+  }),
+)
+
 const barRef = ref<InstanceType<typeof ApprovalActionBar>>()
 
 defineExpose({
@@ -118,6 +131,8 @@ async function onCancel(): Promise<void> {
       :actions="actions"
       :member-options="memberOptions"
       :node-options="nodeOptions"
+      :manual-route-options="routeOptions"
+      :manual-route-multiple="props.manualRouteMultiple"
       :loading="props.loading"
       @submit="onSubmit"
     />

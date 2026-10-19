@@ -29,6 +29,12 @@ public class TaskDetailVO extends InstanceDetailVO implements Serializable {
     @Schema(description = "可退回目标（仅 RETURN 按钮启用时非空）")
     private List<ReturnTargetVO> returnTargets;
 
+    @Schema(description = "人工路由选项（当前节点通过后需人工选择下一步时非空，PASS 弹窗据此渲染下一步下拉）")
+    private List<ManualRouteOptionVO> manualRouteOptions;
+
+    @Schema(description = "人工路由是否多选：下一节点为人工并行（PARALLEL routing=MANUAL）时 true，PASS 携带 routeTargetIds 多选；人工条件路由为单选 routeTargetId")
+    private Boolean manualRouteMultiple;
+
     @Schema(description = "当前用户=assignee 且任务 PENDING（前端据此启用操作栏）")
     private Boolean actionable;
 }

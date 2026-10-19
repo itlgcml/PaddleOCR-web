@@ -11,11 +11,13 @@ import {
   type ConditionGroup,
   type ConditionProps,
   type ConditionRule,
+  type ConditionsProps,
   type ParallelBranchProps,
   type StartProps,
   type WorkflowNode,
 } from '@/types/workflow'
 import { deepClone } from '@/utils/clone'
+import { useWorkflowStore } from '@/stores/workflow'
 import PrincipalSelect from './PrincipalSelect.vue'
 
 const props = defineProps<{ node: WorkflowNode | null }>()
@@ -27,11 +29,25 @@ const emit = defineEmits<{
 
 const visible = defineModel<boolean>({ default: false })
 
-const drawerTitle = computed(() => TITLE_MAP[props.node?.type ?? ''] ?? '节点配置')
+const store = useWorkflowStore()
+
+/** 当前节点是否为「人工路由」模式下的条件分支列（此类列编辑选项名而非条件规则） */
+const isManualCondition = computed(
+  () => props.node?.type === NodeType.CONDITION && store.conditionsRoutingOf(props.node.id) === 'MANUAL',
+)
+
+const drawerTitle = computed(() => {
+  if (isManualCondition.value) {
+    return '人工路由选项'
+  }
+  return TITLE_MAP[props.node?.type ?? ''] ?? '节点配置'
+})
 const TITLE_MAP: Record<string, string> = {
   [NodeType.START]: '发起人',
   [NodeType.APPROVER]: '审批人',
+  [NodeType.CONDITIONS]: '条件分支',
   [NodeType.CONDITION]: '条件规则',
+  [NodeType.PARALLEL]: '并行分支',
   [NodeType.PARALLEL_BRANCH]: '并行分支',
 }
 
@@ -39,7 +55,8 @@ const TITLE_MAP: Record<string, string> = {
 const draftName = ref('')
 const draftStart = ref<StartProps>({ rangeType: 'ALL', memberIds: [], roleIds: [] })
 const draftApprover = ref<ApproverProps>({ source: 'MEMBER', memberIds: [], roleIds: [], leaderLevel: 1, multiMode: 'OR', emptyPolicy: 'AUTO_PASS', canRejectToStart: false, rejectTargetId: '', buttons: createApproverButtons() })
-const draftCondition = ref<ConditionProps>({ groups: [], isDefault: false, priority: 0 })
+const draftCondition = ref<ConditionProps>({ groups: [], isDefault: false, priority: 0, label: '' })
+const draftConditions = ref<ConditionsProps>({ routing: 'AUTO' })
 
 /** 审批人抽屉的页签：节点设置 / 按钮设置 */
 const approverTab = ref<'NODE' | 'BUTTON'>('NODE')
@@ -81,14 +98,20 @@ watch(
         }
         break
       }
+      case NodeType.CONDITIONS:
+      case NodeType.PARALLEL: {
+        // 旧草稿可能缺 routing，读取时补齐为 AUTO
+        draftConditions.value = { routing: (raw as ConditionsProps).routing ?? 'AUTO' }
+        break
+      }
       case NodeType.CONDITION: {
-        // 旧草稿可能缺 priority，读取时补齐
+        // 旧草稿可能缺 priority / label，读取时补齐
         const cond = raw as ConditionProps
-        draftCondition.value = { ...cond, priority: cond.priority ?? 0 }
+        draftCondition.value = { ...cond, priority: cond.priority ?? 0, label: cond.label ?? '' }
         break
       }
       case NodeType.PARALLEL_BRANCH:
-        draftCondition.value = { groups: (raw as ParallelBranchProps).groups ?? [], isDefault: false, priority: 0 }
+        draftCondition.value = { groups: (raw as ParallelBranchProps).groups ?? [], isDefault: false, priority: 0, label: '' }
         break
       default:
         break
@@ -108,8 +131,13 @@ function handleSave(): void {
     case NodeType.APPROVER:
       emit('save', props.node.id, deepClone(draftApprover.value), draftName.value)
       break
+    case NodeType.CONDITIONS:
+    case NodeType.PARALLEL:
+      emit('save', props.node.id, deepClone(draftConditions.value), draftName.value)
+      break
     case NodeType.CONDITION:
-      emit('save', props.node.id, deepClone(draftCondition.value), draftCondition.value.isDefault ? '其他条件' : draftName.value)
+      emit('save', props.node.id, deepClone(draftCondition.value),
+        isManualCondition.value ? draftName.value : (draftCondition.value.isDefault ? '其他条件' : draftName.value))
       break
     case NodeType.PARALLEL_BRANCH:
       emit('save', props.node.id, { groups: deepClone(draftCondition.value.groups) }, draftName.value)
@@ -203,7 +231,11 @@ const EMPTY_POLICY_OPTIONS = [
 
       <el-form v-show="node.type !== NodeType.APPROVER || approverTab === 'NODE'" label-width="90px" label-position="left">
         <el-form-item label="节点名称">
-          <el-input v-model="draftName" :disabled="node.type === NodeType.CONDITION && draftCondition.isDefault" maxlength="20" />
+          <el-input
+            v-model="draftName"
+            :disabled="node.type === NodeType.CONDITION && draftCondition.isDefault && !isManualCondition"
+            maxlength="20"
+          />
         </el-form-item>
 
         <!-- 发起人：与「基本信息」步骤的发起范围控件保持一致，但只读 -->
@@ -261,8 +293,45 @@ const EMPTY_POLICY_OPTIONS = [
           </el-form-item>
         </template>
 
+        <!-- 分支容器（条件分支 / 并行）：路由方式（自动 / 人工） -->
+        <template v-else-if="node.type === NodeType.CONDITIONS || node.type === NodeType.PARALLEL">
+          <el-form-item label="路由方式">
+            <el-radio-group v-model="draftConditions.routing">
+              <el-radio value="AUTO">{{ node.type === NodeType.PARALLEL ? '自动（全部分支并行）' : '自动（按条件路由）' }}</el-radio>
+              <el-radio value="MANUAL">{{ node.type === NodeType.PARALLEL ? '人工（审批人勾选分支）' : '人工（审批人选择）' }}</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-alert
+            v-if="draftConditions.routing === 'MANUAL'"
+            type="info"
+            :closable="false"
+            show-icon
+            :title="node.type === NodeType.PARALLEL
+              ? '人工并行：上游审批人通过时勾选要执行的分支（可多选），仅勾选的分支并行执行'
+              : '人工路由：上游审批人通过后，从各分支列的「选项名称」中选择下一步'"
+          />
+          <el-alert
+            v-else
+            type="info"
+            :closable="false"
+            show-icon
+            :title="node.type === NodeType.PARALLEL
+              ? '自动并行：全部分支同时执行，全部完成后汇合继续'
+              : '自动路由：按各分支列配置的条件规则自动匹配下一步'"
+          />
+        </template>
+
         <!-- 条件分支 / 并行分支：均支持配置条件组，组内与组间可「且 / 或」 -->
         <template v-else-if="node.type === NodeType.CONDITION || node.type === NodeType.PARALLEL_BRANCH">
+          <!-- 人工路由选项：只需配置选项名称 -->
+          <template v-if="isManualCondition">
+            <el-alert type="info" :closable="false" show-icon title="该选项名称将作为审批人选择下一步时的候选项" />
+            <el-form-item label="选项名称">
+              <el-input v-model="draftCondition.label" placeholder="如：发给 B / 直接发 C" maxlength="20" />
+            </el-form-item>
+          </template>
+          <!-- 自动路由：条件组编辑 -->
+          <template v-else>
           <!-- 并行分支：未配置条件则默认执行 -->
           <el-alert
             v-if="node.type === NodeType.PARALLEL_BRANCH"
@@ -324,6 +393,7 @@ const EMPTY_POLICY_OPTIONS = [
               </div>
             </template>
             <el-button class="wf-group-add" type="primary" plain :icon="Plus" @click="addGroup">添加条件组</el-button>
+          </template>
           </template>
         </template>
       </el-form>

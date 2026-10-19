@@ -64,9 +64,6 @@ public class InstanceDetailVO implements Serializable {
     @Schema(description = "版本快照 WorkflowDoc JSON（前端复用 workflow 画布渲染流程图）")
     private String designJson;
 
-    @Schema(description = "节点进度（画布状态着色）")
-    private List<NodeProgressVO> nodes;
-
     @Schema(description = "审批记录时间线")
     private List<TaskRecordVO> records;
 

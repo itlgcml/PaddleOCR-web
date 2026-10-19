@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { ArrowLeft, ArrowRight, Close, DArrowLeft, DArrowRight, Plus } from '@element-plus/icons-vue'
-import { isBranchContainer, NodeType, type BranchMoveAction, type ConditionProps, type WorkflowNode } from '@/types/workflow'
+import { isBranchContainer, NodeType, type BranchMoveAction, type ConditionProps, type ConditionsProps, type WorkflowNode } from '@/types/workflow'
 import NodeCard from './NodeCard.vue'
 import AddNodeButton from './AddNodeButton.vue'
 
@@ -16,6 +16,19 @@ const isBranch = computed(() => props.node !== null && isBranchContainer(props.n
 
 /** 是否为并行节点：无默认列，加列文案与条件分支区分 */
 const isParallel = computed(() => props.node?.type === NodeType.PARALLEL)
+
+/** 是否为人工模式（分支容器 routing=MANUAL）：条件分支=审批人单选下一步，并行=审批人多选分支 */
+const isManualRouting = computed(
+  () => (props.node?.props as ConditionsProps | undefined)?.routing === 'MANUAL',
+)
+
+/** 容器头右侧的路由方式标签：并行与条件分支文案区分 */
+const routingLabel = computed(() => {
+  if (isParallel.value) {
+    return isManualRouting.value ? '人工勾选' : '全部并行'
+  }
+  return isManualRouting.value ? '人工选择' : '自动路由'
+})
 
 /** 是否默认条件列（固定最右） */
 function isDefault(branch: WorkflowNode): boolean {
@@ -37,7 +50,8 @@ function canMove(idx: number, action: BranchMoveAction): boolean {
 }
 
 /**
- * 删除按钮可用性：已达最小规模（2 列）时任列可删，此时删的是整个分支节点；
+ * 删除按钮可用性：已达最小规模（2 列）时任列可删——自动路由下删该列将解散整个分支节点
+ * （仅删被点列及其子流程，剩余列子流程提升到主干），人工路由下仅清空列内审批节点（列保留）；
  * 多列形态下默认条件列不可删，其余列只删自身。
  */
 function canDelete(branch: WorkflowNode): boolean {
@@ -46,6 +60,11 @@ function canDelete(branch: WorkflowNode): boolean {
   }
   return !isDefault(branch)
 }
+
+/** 删除按钮提示：人工路由且仅剩最小规模时不删列不解散容器，仅删除列内审批节点 */
+const deleteTitle = computed(() =>
+  isManualRouting.value && branches.value.length <= 2 ? '删除分支内审批节点' : '删除分支',
+)
 </script>
 
 <template>
@@ -59,6 +78,11 @@ function canDelete(branch: WorkflowNode): boolean {
     <!-- 分支容器（条件分支 / 并行节点，自身不渲染卡片）：多列并排，列内子流程 -->
     <div v-else class="wf-branch">
       <div class="wf-branch-body">
+        <!-- 容器头：点击打开属性面板（条件分支/并行在此配置「路由方式」） -->
+        <button class="wf-branch-head" type="button" @click="$emit('open', node)">
+          <span class="wf-branch-head-name">{{ node.name }}</span>
+          <span class="wf-branch-head-routing">{{ routingLabel }}</span>
+        </button>
         <div
           v-for="(branch, idx) in branches"
           :key="branch.id"
@@ -97,7 +121,7 @@ function canDelete(branch: WorkflowNode): boolean {
             <el-icon
               class="wf-cond-action"
               :class="{ 'is-disabled': !canDelete(branch) }"
-              title="删除分支"
+              :title="deleteTitle"
               @click.stop="canDelete(branch) && $emit('del-branch', branch.id)"
             ><Close /></el-icon>
           </div>
@@ -146,24 +170,24 @@ function canDelete(branch: WorkflowNode): boolean {
   display: flex;
 }
 
-/* 上内边距 68 = 入口竖线 44 + 列进线 24（横线所在高度即两者的交点）；
-   其中 44 里预留给「添加条件」按钮的高度，避免按钮压住横线 */
+/* 上内边距 96 = 容器头 28 + 入口竖线 44 + 列进线 24（横线所在高度即后两者的交点）；
+   其中 28 预留给容器头胶囊，44 预留给「添加条件」按钮，避免压住横线 */
 .wf-branch-body {
   position: relative;
   display: flex;
   /* 按内容自然宽度布局：嵌套分支时避免列被父级压缩导致横线缩短甚至不可见 */
   width: max-content;
-  padding: 68px 0 20px;
+  padding: 96px 0 20px;
 }
 
-/* 入口：自上一节点引下的居中竖线，补齐到分流横线（横线位于 body 内 44px 处） */
+/* 入口：自上一节点引下的居中竖线，补齐到分流横线（横线位于 body 内 72px 处） */
 .wf-branch-body::before {
   position: absolute;
   z-index: 0;
   top: 0;
   left: 50%;
   width: 2px;
-  height: 44px;
+  height: 72px;
   margin-left: -1px;
   background: #dedfdf;
   content: '';
@@ -340,7 +364,7 @@ function canDelete(branch: WorkflowNode): boolean {
 /* 位于分流横线正中上方（横向居中，底边距横线 2px，不遮挡横线） */
 .wf-branch-add {
   position: absolute;
-  top: 44px;
+  top: 72px;
   left: 50%;
   z-index: 2;
   display: inline-flex;
@@ -359,5 +383,49 @@ function canDelete(branch: WorkflowNode): boolean {
 .wf-branch-add:hover {
   color: #409eff;
   border-color: #409eff;
+}
+
+/* 容器头：分支容器的可点击入口，点击打开属性面板（条件分支在此配置「路由方式」） */
+.wf-branch-head {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  z-index: 2;
+  transform: translateX(-50%);
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  max-width: 240px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: #8a94e6;
+  cursor: pointer;
+  background: #ffffff;
+  border: 1px solid #8a94e6;
+  border-radius: 12px;
+  transition: box-shadow 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.wf-branch-head:hover {
+  color: #409eff;
+  border-color: #409eff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.wf-branch-head-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-branch-head-routing {
+  flex-shrink: 0;
+  color: #909399;
+  white-space: nowrap;
+}
+
+.wf-branch-head:hover .wf-branch-head-routing {
+  color: #409eff;
 }
 </style>

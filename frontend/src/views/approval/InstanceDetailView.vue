@@ -6,7 +6,6 @@ import { ArrowLeft } from '@element-plus/icons-vue'
 import ApprovalStatusBar from './components/ApprovalStatusBar.vue'
 import BizFormSnapshot from './components/BizFormSnapshot.vue'
 import InstanceTimeline from './components/InstanceTimeline.vue'
-import NodeProgressList from './components/NodeProgressList.vue'
 import {
   fetchInstanceDetail,
   fetchTaskDetail,
@@ -19,7 +18,7 @@ import type { InstanceDetailVO, TaskDetailVO } from '@/types/approval'
 
 /**
  * 实例详情页（四视角合一）：
- * - 发起人视角：表单快照 + 进度 + 时间线 + 撤销
+ * - 发起人视角：表单快照 + 时间线 + 撤销
  * - 办理视角（query.taskId 或 myPendingTaskId 自动切换）：动作按钮栏
  * - 抄送视角（query.ccId）：进入即自动标记已读
  * - 查看视角：只读
@@ -165,6 +164,8 @@ function goBack(): void {
         ref="barRef"
         :buttons="actionableTask?.buttons ?? []"
         :return-targets="actionableTask?.returnTargets ?? []"
+        :manual-route-options="actionableTask?.manualRouteOptions ?? []"
+        :manual-route-multiple="actionableTask?.manualRouteMultiple ?? false"
         :can-cancel="detail.canCancel"
         :loading="submitting"
         @submit="onActionSubmit"
@@ -192,12 +193,8 @@ function goBack(): void {
       <div class="detail-grid">
         <div class="grid-main">
           <el-card shadow="never" class="detail-card">
-            <template #header><span class="card-title">表单内容</span></template>
+            <template #header><span class="card-title">业务内容</span></template>
             <BizFormSnapshot :biz-type="detail.bizType" :form-json="detail.formSnapshotJson" />
-          </el-card>
-          <el-card shadow="never" class="detail-card">
-            <template #header><span class="card-title">节点进度</span></template>
-            <NodeProgressList :nodes="detail.nodes" />
           </el-card>
         </div>
         <div class="grid-side">

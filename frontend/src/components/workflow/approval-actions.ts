@@ -20,6 +20,8 @@ import type { AddSignDirection, ApprovalActionKey } from '@/types/workflow'
 export interface ActionOption {
   id: string
   label: string
+  /** 人工路由分支选项专用：分支列内首个审批节点的候选审批人（非空时选中该分支后可指定审批人） */
+  children?: ActionOption[]
 }
 
 /** 弹窗表单字段 */

@@ -68,12 +68,16 @@ const BRANCH_DELETE_CONFIRM: Record<Exclude<BranchDeleteAction, 'NONE'>, { title
     message: '删除该分支列将连同其内部子流程一并删除，确定吗？',
   },
   BRANCH: {
-    title: '删除条件分支节点',
-    message: '该条件分支仅剩「1 个条件 + 1 个其他条件」，删除会连同整个条件分支节点及其内部子流程一并移除，确定吗？',
+    title: '解散条件分支节点',
+    message: '该条件分支仅剩 2 列，删除此列将解散整个条件分支：此列及其子流程被删除，另一列的子流程将接续到主干，确定吗？',
   },
   PARALLEL: {
-    title: '删除并行节点',
-    message: '该并行节点仅剩 2 个并行节点，删除会连同整个并行节点及其内部子流程一并移除，确定吗？',
+    title: '解散并行节点',
+    message: '该并行节点仅剩 2 个分支，删除此分支将解散整个并行节点：此分支及其子流程被删除，另一分支的子流程将接续到主干，确定吗？',
+  },
+  CLEAR: {
+    title: '删除分支内审批节点',
+    message: '人工选择分支至少需保留 2 个分支列，此处仅删除该分支内的审批节点（分支列与选项配置保留），确定吗？',
   },
 }
 
@@ -93,8 +97,9 @@ async function onDelBranch(id: string): Promise<void> {
     ElMessage.error('删除失败')
     return
   }
-  // 删的是整个节点（条件分支 / 并行节点）时，同步收起属性抽屉
-  if (action !== 'COLUMN') {
+  // 删的是整个节点（条件分支 / 并行节点）时，同步收起属性抽屉；
+  // CLEAR 仅清空列内审批节点：若抽屉正打开被删的审批节点（activeNode 已失效）也一并收起
+  if (action === 'BRANCH' || action === 'PARALLEL' || (action === 'CLEAR' && !activeNode.value)) {
     drawerVisible.value = false
   }
 }

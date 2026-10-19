@@ -36,7 +36,7 @@ public interface FlowInstanceService {
     PageResultVO<InstanceItemVO> pageMine(RuntimePageQuery query, Long userId);
 
     /**
-     * 实例详情（表单快照 + 画布 JSON + 节点进度 + 审批记录 + 当前用户视角）；非参与人 40059
+     * 实例详情（表单快照 + 画布 JSON + 审批记录 + 当前用户视角）；非参与人 40059
      */
     InstanceDetailVO detail(Long instanceId, Long userId);
 

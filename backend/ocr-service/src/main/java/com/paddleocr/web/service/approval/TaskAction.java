@@ -41,10 +41,10 @@ public final class TaskAction {
     /** 抄送（落 flow_cc，不影响流转） */
     public static final String COPY = "COPY";
 
-    /** 空审批人自动通过/条件容器直通/TRANSACT 直通（系统动作） */
+    /** 空审批人自动通过/条件容器直通/TRANSACT 直通（系统动作，仅落 flow_task.action，不单独落审批记录） */
     public static final String AUTO_PASS = "AUTO_PASS";
 
-    /** 引擎降级/异常路径说明（系统动作） */
+    /** 引擎降级/异常路径说明（系统动作，聚合进本次操作记录 detail，不单独落 flow_task_log） */
     public static final String ENGINE = "ENGINE";
 
     /** 加签方向-前加签 */

@@ -2,7 +2,8 @@
 import { computed } from 'vue'
 import { Avatar, Close, CopyDocument, EditPen, Share, User } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
-import { NodeType, type ConditionLogic, type ConditionProps, type WorkflowNode } from '@/types/workflow'
+import { NodeType, type ConditionLogic, type ConditionProps, type ConditionsProps, type WorkflowNode } from '@/types/workflow'
+import { useWorkflowStore } from '@/stores/workflow'
 import { principalLabel } from '@/composables/usePrincipalOptions'
 
 const props = defineProps<{ node: WorkflowNode; active?: boolean }>()
@@ -12,6 +13,8 @@ const emit = defineEmits<{
   (e: 'copy', id: string): void
   (e: 'remove', id: string): void
 }>()
+
+const store = useWorkflowStore()
 
 const META: Record<string, { icon: Component; color: string }> = {
   [NodeType.START]: { icon: User, color: '#409EFF' },
@@ -48,12 +51,30 @@ const description = computed<string>(() => {
       const names = [...(appr.memberIds ?? []), ...(appr.roleIds ?? [])].map(principalLabel)
       return names.length > 0 ? names.join('、') : '请设置审批人'
     }
+    case NodeType.CONDITIONS: {
+      const routing = (p as ConditionsProps).routing ?? 'AUTO'
+      return routing === 'MANUAL' ? '审批人选择下一步' : '按条件自动路由'
+    }
+    case NodeType.PARALLEL: {
+      const routing = (p as ConditionsProps).routing ?? 'AUTO'
+      return routing === 'MANUAL' ? '审批人勾选分支执行' : '全部分支并行执行'
+    }
     case NodeType.CONDITION: {
       const cond = p as ConditionProps
+      if (store.conditionsRoutingOf(props.node.id) === 'MANUAL') {
+        return cond.label?.trim() || '请设置选项名称'
+      }
       if (cond.isDefault) {
         return '其余条件均不满足时进入'
       }
       return summarizeCondition(cond) || '请设置条件'
+    }
+    case NodeType.PARALLEL_BRANCH: {
+      if (store.conditionsRoutingOf(props.node.id) === 'MANUAL') {
+        return '由审批人勾选执行'
+      }
+      const cond = p as ConditionProps
+      return summarizeCondition(cond) || '满足条件时并行执行'
     }
     default:
       return ''

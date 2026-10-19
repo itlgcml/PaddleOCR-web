@@ -28,6 +28,9 @@ public final class FlowDesignCursor {
     public static final String TYPE_PARALLEL = "PARALLEL";
     public static final String TYPE_TRANSACT = "TRANSACT";
 
+    /** 条件分支路由模式：人工（上游审批人选择下一步，分支列以 label 表达选项） */
+    public static final String ROUTING_MANUAL = "MANUAL";
+
     /** 流程根节点（START） */
     private final JsonNode root;
 
@@ -86,11 +89,64 @@ public final class FlowDesignCursor {
     }
 
     /**
+     * 分支列内首个审批节点：沿列链向下跳过直通办理节点（TRANSACT，引擎推进时不建任务）；
+     * 遇嵌套分支容器（CONDITIONS/PARALLEL）即返回 null——后续走向由容器决定，审批人不唯一。
+     * 人工路由指定审批人的候选解析与引擎登记共用本口径。
+     */
+    public static JsonNode firstApproverInBranch(JsonNode column) {
+        JsonNode node = chainNext(column);
+        while (node != null) {
+            String type = typeOf(node);
+            if (TYPE_APPROVER.equals(type)) {
+                return node;
+            }
+            if (TYPE_TRANSACT.equals(type)) {
+                node = chainNext(node);
+                continue;
+            }
+            return null;
+        }
+        return null;
+    }
+
+    /**
+     * 人工路由指定审批人的目标定位：优先取分支列内首个审批节点；列内无审批节点
+     * （空列或仅直通办理节点，引擎推进将汇合到容器后继链）时回退取容器后继链上的
+     * 首个审批节点，与 advanceManualRoute/advanceManualParallel 对空列的流转落点一致。
+     * 两侧定位口径相同（跳过直通办理节点、遇嵌套分支容器即 null——后续走向由容器决定，
+     * 审批人不唯一）。人工路由的候选预览与引擎登记覆盖共用本口径。
+     */
+    public static JsonNode routeAssigneeTarget(JsonNode column, JsonNode container) {
+        JsonNode inBranch = firstApproverInBranch(column);
+        return inBranch != null ? inBranch : firstApproverInBranch(container);
+    }
+
+    /**
      * 是否分支容器（CONDITIONS/PARALLEL）：两者都以 conditionNodes 横向展开多列
      */
     public static boolean isBranchContainer(JsonNode node) {
         String type = typeOf(node);
         return TYPE_CONDITIONS.equals(type) || TYPE_PARALLEL.equals(type);
+    }
+
+    /**
+     * 是否人工路由节点（CONDITIONS 且 routing=MANUAL）：由上游审批人在 PASS 时携带 routeTargetId 选择分支列，
+     * 引擎不做自动求值。旧数据缺省 routing 按 AUTO 处理。
+     */
+    public static boolean isManualRouting(JsonNode node) {
+        return node != null
+                && TYPE_CONDITIONS.equals(typeOf(node))
+                && ROUTING_MANUAL.equals(propsOf(node).path("routing").asText("AUTO"));
+    }
+
+    /**
+     * 是否人工并行节点（PARALLEL 且 routing=MANUAL）：由上游审批人在 PASS 时携带 routeTargetIds 勾选
+     * 要执行的分支列集合（多选，至少一个），引擎只对选中列并行推进；AUTO（缺省）= 全部分支无条件并行。
+     */
+    public static boolean isManualParallel(JsonNode node) {
+        return node != null
+                && TYPE_PARALLEL.equals(typeOf(node))
+                && ROUTING_MANUAL.equals(propsOf(node).path("routing").asText("AUTO"));
     }
 
     /**
