@@ -1,5 +1,6 @@
 package com.paddleocr.web.controller;
 
+import com.paddleocr.web.annotation.RepeatSubmit;
 import com.paddleocr.web.common.ApiResponse;
 import com.paddleocr.web.common.BusinessException;
 import com.paddleocr.web.common.ResultCode;
@@ -61,6 +62,7 @@ public class AuthController {
      */
     @Operation(summary = "注册")
     @PostMapping("/register")
+    @RepeatSubmit
     public ApiResponse<UserInfoVO> register(@RequestBody @Validated RegisterDTO dto) {
         return ApiResponse.ok(userService.register(dto));
     }
@@ -70,6 +72,7 @@ public class AuthController {
      */
     @Operation(summary = "登录")
     @PostMapping("/login")
+    @RepeatSubmit
     public ApiResponse<LoginVO> login(@RequestBody @Validated LoginDTO dto, HttpServletRequest request) {
         LoginUser principal;
         try {
@@ -93,6 +96,7 @@ public class AuthController {
      */
     @Operation(summary = "刷新令牌")
     @PostMapping("/refresh")
+    @RepeatSubmit
     public ApiResponse<TokenVO> refresh(@RequestBody @Validated RefreshTokenDTO dto) {
         return ApiResponse.ok(authService.refresh(dto.getRefreshToken()));
     }
@@ -111,6 +115,7 @@ public class AuthController {
      */
     @Operation(summary = "登出")
     @PostMapping("/logout")
+    @RepeatSubmit
     public ApiResponse<Void> logout(@RequestBody(required = false) LogoutDTO dto,
                                     HttpServletRequest request) {
         authService.logout(extractBearerToken(request), dto);

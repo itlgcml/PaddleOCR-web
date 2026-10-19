@@ -120,6 +120,7 @@ public class UserAdminServiceImpl implements UserAdminService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void updateUserOrg(Long userId, Long orgId) {
         getExistingUser(userId);
         OrgDO org = orgMapper.selectById(orgId);
@@ -154,6 +155,7 @@ public class UserAdminServiceImpl implements UserAdminService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void updateUserStatus(Long userId, Integer status) {
         getExistingUser(userId);
         userMapper.update(null, new LambdaUpdateWrapper<UserDO>()

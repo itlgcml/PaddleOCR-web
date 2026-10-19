@@ -1,7 +1,7 @@
 /** 律所选聘管理接口（/api/law-firm-select/**，登录即可访问） */
 import request from '@/api/request'
 import type { PageQuery, PageResult } from '@/types/api'
-import type { LawFirmSelectSaveDTO, LawFirmSelectVO } from '@/types/lawfirmselect'
+import type { LawFirmSelectSaveDTO, LawFirmSelectSubmitDTO, LawFirmSelectVO } from '@/types/lawfirmselect'
 
 /** 律所选聘分页查询参数 */
 export interface LawFirmSelectPageQuery extends PageQuery {
@@ -22,6 +22,11 @@ export function fetchLawFirmSelectDetail(id: string): Promise<LawFirmSelectVO> {
 /** 新增律所选聘，返回新记录 id */
 export function submitLawFirmSelectCreate(data: LawFirmSelectSaveDTO): Promise<string> {
   return request.post<unknown, string>('/law-firm-select/create', data)
+}
+
+/** 新增律所选聘并直接提交审批（后端单事务：建单+发起任一失败整体回滚），返回流程实例 ID */
+export function submitLawFirmSelectCreateAndSubmit(data: LawFirmSelectSubmitDTO): Promise<string> {
+  return request.post<unknown, string>('/law-firm-select/create-and-submit', data)
 }
 
 /** 修改律所选聘（记录不存在后端拒绝 40050） */

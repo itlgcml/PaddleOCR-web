@@ -1,5 +1,6 @@
 package com.paddleocr.web.controller.system;
 
+import com.paddleocr.web.annotation.RepeatSubmit;
 import com.paddleocr.web.common.ApiResponse;
 import com.paddleocr.web.model.PageResultVO;
 import com.paddleocr.web.model.dto.RoleSaveDTO;
@@ -62,6 +63,7 @@ public class RoleController {
      */
     @Operation(summary = "新增角色")
     @PostMapping("/create")
+    @RepeatSubmit
     public ApiResponse<String> create(@RequestBody @Validated RoleSaveDTO dto) {
         return ApiResponse.ok(roleService.saveRole(dto));
     }
@@ -71,6 +73,7 @@ public class RoleController {
      */
     @Operation(summary = "修改角色")
     @PutMapping("/update/{id}")
+    @RepeatSubmit
     public ApiResponse<Void> update(@PathVariable("id") Long id,
                                     @RequestBody @Validated RoleUpdateDTO dto) {
         roleService.updateRole(id, dto);
@@ -82,6 +85,7 @@ public class RoleController {
      */
     @Operation(summary = "删除角色")
     @DeleteMapping("/delete/{id}")
+    @RepeatSubmit
     public ApiResponse<Void> delete(@PathVariable("id") Long id) {
         roleService.removeRole(id);
         return ApiResponse.ok();

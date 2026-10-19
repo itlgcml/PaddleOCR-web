@@ -124,7 +124,6 @@ function onSubmitted(): void {
     <SubmitApprovalDrawer
       v-if="drawerFormData"
       v-model="drawerVisible"
-      biz-type="LAW_FIRM_SELECT"
       :form-data="drawerFormData"
       :biz-title="drawerFormData.title"
       @submitted="onSubmitted"

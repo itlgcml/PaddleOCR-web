@@ -1,5 +1,6 @@
 package com.paddleocr.web.controller.system;
 
+import com.paddleocr.web.annotation.RepeatSubmit;
 import com.paddleocr.web.common.ApiResponse;
 import com.paddleocr.web.common.BusinessException;
 import com.paddleocr.web.common.ResultCode;
@@ -64,6 +65,7 @@ public class UserAdminController {
      */
     @Operation(summary = "新增用户")
     @PostMapping("/create")
+    @RepeatSubmit
     public ApiResponse<String> create(@RequestBody @Validated UserCreateDTO dto) {
         return ApiResponse.ok(userAdminService.saveUser(dto));
     }
@@ -73,6 +75,7 @@ public class UserAdminController {
      */
     @Operation(summary = "调整所属机构")
     @PutMapping("/org/{id}")
+    @RepeatSubmit
     public ApiResponse<Void> assignOrg(@PathVariable("id") Long id,
                                        @RequestBody @Validated UserOrgAssignDTO dto) {
         userAdminService.updateUserOrg(id, dto.getOrgId());
@@ -84,6 +87,7 @@ public class UserAdminController {
      */
     @Operation(summary = "分配角色（全量替换）")
     @PutMapping("/roles/{id}")
+    @RepeatSubmit
     public ApiResponse<Void> assignRoles(@PathVariable("id") Long id,
                                          @RequestBody @Validated UserRoleAssignDTO dto) {
         rejectSelfOperation(id);
@@ -96,6 +100,7 @@ public class UserAdminController {
      */
     @Operation(summary = "启用/禁用")
     @PutMapping("/status/{id}")
+    @RepeatSubmit
     public ApiResponse<Void> updateStatus(@PathVariable("id") Long id,
                                           @RequestBody @Validated UserStatusDTO dto) {
         rejectSelfOperation(id);

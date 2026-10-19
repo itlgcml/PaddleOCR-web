@@ -14,6 +14,7 @@ import com.paddleocr.web.model.vo.CcVO;
 import com.paddleocr.web.service.approval.FlowCcService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -71,6 +72,7 @@ public class FlowCcServiceImpl implements FlowCcService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void markRead(Long ccId, Long userId) {
         FlowCcDO cc = flowCcMapper.selectById(ccId);
         if (cc == null) {

@@ -1,20 +1,18 @@
 <script setup lang="ts">
 import { computed, reactive, ref, shallowRef, watch } from 'vue'
 import RuntimeUserSelect from '@/views/approval/components/RuntimeUserSelect.vue'
-import { fetchNextApprovers, fetchStartableProcesses, submitInstanceStart } from '@/api/approval-runtime'
-import { submitLawFirmSelectCreate } from '@/api/lawfirmselect'
+import { fetchNextApprovers, fetchStartableProcesses } from '@/api/approval-runtime'
+import { submitLawFirmSelectCreateAndSubmit } from '@/api/lawfirmselect'
 import type { LawFirmSelectSaveDTO } from '@/types/lawfirmselect'
 import type { NextApproverVO, NodeApproverPreviewVO, StartableProcessVO } from '@/types/approval'
 
 /**
  * 新增单据"提交审批"抽屉：按表单值预览并设置第一审批阶段（下一节点）审批人
  * （conditions 真实求值条件分支；并行阶段展开为多节点，按节点名称分开选择，不看下下节点），
- * 确认后创建单据并发起流程（V1 bizType=LAW_FIRM_SELECT）。
+ * 确认后调用组合接口单事务完成建单与发起（V1 bizType 固定 LAW_FIRM_SELECT）。
  * 与列表页 StartApprovalDialog（已有 bizId 的单据发起）互补，覆盖"边填边提交"场景。
  */
 const props = defineProps<{
-  /** 业务单据类型（V1 仅 LAW_FIRM_SELECT） */
-  bizType: string
   /** 新建单据表单值快照（创建单据入参与条件分支求值共用） */
   formData: LawFirmSelectSaveDTO
   /** 单据标题（抽屉回显） */
@@ -138,7 +136,7 @@ function onProcessChange(): void {
   void loadPreview()
 }
 
-/** 确认提交：先创建单据拿 bizId，再发起审批流程 */
+/** 确认提交：组合接口单事务原子完成建单与发起（任一失败整体回滚，不残留草稿） */
 async function onSubmit(): Promise<void> {
   const process = selectedProcess.value
   if (!process || submitting.value) {
@@ -146,11 +144,9 @@ async function onSubmit(): Promise<void> {
   }
   submitting.value = true
   try {
-    const bizId = await submitLawFirmSelectCreate(props.formData)
-    const instanceId = await submitInstanceStart({
+    const instanceId = await submitLawFirmSelectCreateAndSubmit({
+      ...props.formData,
       processCode: process.code,
-      bizType: props.bizType,
-      bizId,
       ccUserIds: form.ccUserIds.length > 0 ? form.ccUserIds : undefined,
       comment: form.comment.trim() || undefined,
     })
@@ -158,7 +154,7 @@ async function onSubmit(): Promise<void> {
     visible.value = false
     emit('submitted', instanceId)
   } catch {
-    // 失败提示由拦截器统一处理（create 成功而 start 失败时单据已存在，可回列表重新发起）
+    // 失败提示由拦截器统一处理；后端单事务回滚，单据不会残留
   } finally {
     submitting.value = false
   }

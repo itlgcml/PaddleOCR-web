@@ -21,3 +21,13 @@ export interface LawFirmSelectSaveDTO {
   /** 选聘原因（1~512 位） */
   reason: string
 }
+
+/** 律所选聘新增并提交审批请求（与后端 LawFirmSelectSubmitDTO 镜像；单事务，任一失败整体回滚） */
+export interface LawFirmSelectSubmitDTO extends LawFirmSelectSaveDTO {
+  /** 流程编码 */
+  processCode: string
+  /** 发起抄送人 ID 集合（可选，≤20） */
+  ccUserIds?: string[]
+  /** 发起备注（可选，≤512） */
+  comment?: string
+}

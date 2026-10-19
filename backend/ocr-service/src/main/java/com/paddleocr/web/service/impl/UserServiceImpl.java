@@ -121,6 +121,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void recordLoginFailure(Long userId) {
         // SQL 原子自增，禁止先查后写的 read-modify-write（并发会丢失更新、绕过阈值）
         userMapper.increaseFailedAttempts(userId,
@@ -129,8 +130,9 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void recordLoginSuccess(Long userId, String loginIp) {
-        // 各自短事务的单条 UPDATE：清零失败计数 + 写入登录信息
+        // 同一事务：清零失败计数 + 写入登录信息（login 外层事务下加入同一事务）
         userMapper.resetLoginFailure(userId);
         userMapper.updateLoginInfo(userId, LocalDateTime.now(), loginIp);
     }

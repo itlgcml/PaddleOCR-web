@@ -1,5 +1,6 @@
 package com.paddleocr.web.controller.approval;
 
+import com.paddleocr.web.annotation.RepeatSubmit;
 import com.paddleocr.web.common.ApiResponse;
 import com.paddleocr.web.common.BusinessException;
 import com.paddleocr.web.common.ResultCode;
@@ -63,6 +64,7 @@ public class FlowInstanceController {
      */
     @Operation(summary = "发起流程")
     @PostMapping("/start")
+    @RepeatSubmit
     public ApiResponse<String> start(@RequestBody @Validated InstanceStartDTO dto) {
         return ApiResponse.ok(flowInstanceService.start(dto, SecurityUtils.getUserId()));
     }
@@ -99,6 +101,7 @@ public class FlowInstanceController {
      */
     @Operation(summary = "撤销实例")
     @PostMapping("/{id}/cancel")
+    @RepeatSubmit
     public ApiResponse<Void> cancel(@PathVariable("id") Long id,
                                     @RequestBody(required = false) InstanceCancelDTO dto) {
         flowInstanceService.cancel(id, dto, SecurityUtils.getUserId());

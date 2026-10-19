@@ -1,9 +1,12 @@
 package com.paddleocr.web.controller.lawfirmselect;
 
+import com.paddleocr.web.annotation.RepeatSubmit;
 import com.paddleocr.web.common.ApiResponse;
 import com.paddleocr.web.model.PageResultVO;
 import com.paddleocr.web.model.dto.LawFirmSelectSaveDTO;
+import com.paddleocr.web.model.dto.LawFirmSelectSubmitDTO;
 import com.paddleocr.web.model.vo.LawFirmSelectVO;
+import com.paddleocr.web.security.SecurityUtils;
 import com.paddleocr.web.service.lawfirmselect.LawFirmSelectService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -59,8 +62,19 @@ public class LawFirmSelectController {
      */
     @Operation(summary = "新增律所选聘")
     @PostMapping("/create")
+    @RepeatSubmit
     public ApiResponse<String> create(@RequestBody @Validated LawFirmSelectSaveDTO dto) {
         return ApiResponse.ok(lawFirmSelectService.saveLawFirmSelect(dto));
+    }
+
+    /**
+     * 新增律所选聘并直接提交审批（单事务：建单与发起任一失败整体回滚，不留草稿）
+     */
+    @Operation(summary = "新增并提交审批")
+    @PostMapping("/create-and-submit")
+    @RepeatSubmit
+    public ApiResponse<String> createAndSubmit(@RequestBody @Validated LawFirmSelectSubmitDTO dto) {
+        return ApiResponse.ok(lawFirmSelectService.createAndSubmit(dto, SecurityUtils.getUserId()));
     }
 
     /**
@@ -68,6 +82,7 @@ public class LawFirmSelectController {
      */
     @Operation(summary = "修改律所选聘")
     @PutMapping("/update/{id}")
+    @RepeatSubmit
     public ApiResponse<Void> update(@PathVariable("id") Long id,
                                     @RequestBody @Validated LawFirmSelectSaveDTO dto) {
         lawFirmSelectService.updateLawFirmSelect(id, dto);
@@ -79,6 +94,7 @@ public class LawFirmSelectController {
      */
     @Operation(summary = "删除律所选聘")
     @DeleteMapping("/delete/{id}")
+    @RepeatSubmit
     public ApiResponse<Void> delete(@PathVariable("id") Long id) {
         lawFirmSelectService.removeLawFirmSelect(id);
         return ApiResponse.ok();

@@ -1,5 +1,6 @@
 package com.paddleocr.web.controller.system;
 
+import com.paddleocr.web.annotation.RepeatSubmit;
 import com.paddleocr.web.common.ApiResponse;
 import com.paddleocr.web.model.dto.OrgSaveDTO;
 import com.paddleocr.web.model.dto.OrgUpdateDTO;
@@ -48,6 +49,7 @@ public class OrgController {
      */
     @Operation(summary = "新增机构")
     @PostMapping("/create")
+    @RepeatSubmit
     public ApiResponse<String> create(@RequestBody @Validated OrgSaveDTO dto) {
         return ApiResponse.ok(orgService.saveOrg(dto));
     }
@@ -57,6 +59,7 @@ public class OrgController {
      */
     @Operation(summary = "修改机构")
     @PutMapping("/update/{id}")
+    @RepeatSubmit
     public ApiResponse<Void> update(@PathVariable("id") Long id,
                                     @RequestBody @Validated OrgUpdateDTO dto) {
         orgService.updateOrg(id, dto);
@@ -68,6 +71,7 @@ public class OrgController {
      */
     @Operation(summary = "删除机构")
     @DeleteMapping("/delete/{id}")
+    @RepeatSubmit
     public ApiResponse<Void> delete(@PathVariable("id") Long id) {
         orgService.removeOrg(id);
         return ApiResponse.ok();

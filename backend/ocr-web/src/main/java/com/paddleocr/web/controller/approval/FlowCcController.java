@@ -1,5 +1,6 @@
 package com.paddleocr.web.controller.approval;
 
+import com.paddleocr.web.annotation.RepeatSubmit;
 import com.paddleocr.web.common.ApiResponse;
 import com.paddleocr.web.model.PageResultVO;
 import com.paddleocr.web.model.dto.RuntimePageQuery;
@@ -59,6 +60,7 @@ public class FlowCcController {
      */
     @Operation(summary = "标记已阅")
     @PostMapping("/{ccId}/read")
+    @RepeatSubmit
     public ApiResponse<Void> markRead(@PathVariable("ccId") Long ccId) {
         flowCcService.markRead(ccId, SecurityUtils.getUserId());
         return ApiResponse.ok();

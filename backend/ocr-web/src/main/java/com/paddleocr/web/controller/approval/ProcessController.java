@@ -1,5 +1,6 @@
 package com.paddleocr.web.controller.approval;
 
+import com.paddleocr.web.annotation.RepeatSubmit;
 import com.paddleocr.web.common.ApiResponse;
 import com.paddleocr.web.model.PageResultVO;
 import com.paddleocr.web.model.dto.ProcessDesignSaveDTO;
@@ -76,6 +77,7 @@ public class ProcessController {
     @Operation(summary = "新增流程")
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/create")
+    @RepeatSubmit
     public ApiResponse<String> create(@RequestBody @Validated ProcessSaveDTO dto) {
         return ApiResponse.ok(processService.create(dto));
     }
@@ -86,6 +88,7 @@ public class ProcessController {
     @Operation(summary = "更新流程基本信息")
     @PreAuthorize("hasRole('ADMIN')")
     @PutMapping("/update/{id}")
+    @RepeatSubmit
     public ApiResponse<Void> update(@PathVariable("id") Long id,
                                     @RequestBody @Validated ProcessUpdateDTO dto) {
         processService.update(id, dto);
@@ -98,6 +101,7 @@ public class ProcessController {
     @Operation(summary = "保存流程设计草稿")
     @PreAuthorize("hasRole('ADMIN')")
     @PutMapping("/{id}/design")
+    @RepeatSubmit
     public ApiResponse<Void> saveDesign(@PathVariable("id") Long id,
                                         @RequestBody @Validated ProcessDesignSaveDTO dto) {
         processService.saveDesign(id, dto);
@@ -121,6 +125,7 @@ public class ProcessController {
     @Operation(summary = "发布流程")
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/{id}/publish")
+    @RepeatSubmit
     public ApiResponse<String> publish(@PathVariable("id") Long id) {
         return ApiResponse.ok(processService.publish(id));
     }
@@ -131,6 +136,7 @@ public class ProcessController {
     @Operation(summary = "停用流程")
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/{id}/disable")
+    @RepeatSubmit
     public ApiResponse<Void> disable(@PathVariable("id") Long id) {
         processService.disable(id);
         return ApiResponse.ok();
@@ -152,6 +158,7 @@ public class ProcessController {
     @Operation(summary = "删除流程")
     @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/{id}")
+    @RepeatSubmit
     public ApiResponse<Void> remove(@PathVariable("id") Long id) {
         processService.remove(id);
         return ApiResponse.ok();

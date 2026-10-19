@@ -74,6 +74,7 @@ public class RoleServiceImpl implements RoleService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public String saveRole(RoleSaveDTO dto) {
         Long sameCodeCount = roleMapper.selectCount(
                 new LambdaQueryWrapper<RoleDO>().eq(RoleDO::getRoleCode, dto.getRoleCode()));
@@ -93,6 +94,7 @@ public class RoleServiceImpl implements RoleService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void updateRole(Long id, RoleUpdateDTO dto) {
         RoleDO role = getExistingRole(id);
         if (Integer.valueOf(BUILT_IN).equals(role.getBuiltIn())) {

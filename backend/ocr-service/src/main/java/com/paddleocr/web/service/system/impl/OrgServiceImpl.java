@@ -15,6 +15,7 @@ import com.paddleocr.web.service.system.OrgService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -84,6 +85,7 @@ public class OrgServiceImpl implements OrgService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public String saveOrg(OrgSaveDTO dto) {
         OrgDO parent = orgMapper.selectById(dto.getParentId());
         if (parent == null || !Integer.valueOf(STATUS_ENABLED).equals(parent.getStatus())) {
@@ -108,6 +110,7 @@ public class OrgServiceImpl implements OrgService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void updateOrg(Long id, OrgUpdateDTO dto) {
         OrgDO org = orgMapper.selectById(id);
         if (org == null) {
@@ -123,6 +126,7 @@ public class OrgServiceImpl implements OrgService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void removeOrg(Long id) {
         OrgDO org = orgMapper.selectById(id);
         if (org == null) {

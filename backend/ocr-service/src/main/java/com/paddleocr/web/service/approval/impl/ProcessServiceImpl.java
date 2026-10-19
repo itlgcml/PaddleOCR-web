@@ -133,6 +133,7 @@ public class ProcessServiceImpl implements ProcessService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public String create(ProcessSaveDTO dto) {
         validateInitiatorRange(dto.getInitiatorType(), dto.getInitiatorMembers(), dto.getInitiatorRoles());
         Long sameCodeCount = processMapper.selectCount(
@@ -157,6 +158,7 @@ public class ProcessServiceImpl implements ProcessService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void update(Long id, ProcessUpdateDTO dto) {
         ProcessDO process = getExistingProcess(id);
         if (!ProcessStatus.DRAFT.equals(process.getStatus())) {
@@ -178,6 +180,7 @@ public class ProcessServiceImpl implements ProcessService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void saveDesign(Long id, ProcessDesignSaveDTO dto) {
         executeWithSubmitLock(id, () -> {
             ProcessDO process = getExistingProcess(id);
@@ -242,6 +245,7 @@ public class ProcessServiceImpl implements ProcessService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void disable(Long id) {
         ProcessDO process = getExistingProcess(id);
         if (!ProcessStatus.PUBLISHED.equals(process.getStatus())) {

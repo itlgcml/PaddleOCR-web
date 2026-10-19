@@ -1,5 +1,6 @@
 package com.paddleocr.web.controller.approval;
 
+import com.paddleocr.web.annotation.RepeatSubmit;
 import com.paddleocr.web.common.ApiResponse;
 import com.paddleocr.web.model.PageResultVO;
 import com.paddleocr.web.model.dto.RuntimePageQuery;
@@ -82,6 +83,7 @@ public class FlowTaskController {
      */
     @Operation(summary = "审批动作统一入口")
     @PostMapping("/{taskId}/action")
+    @RepeatSubmit
     public ApiResponse<Void> action(@PathVariable("taskId") Long taskId,
                                     @RequestBody @Validated TaskActionDTO dto) {
         flowTaskService.action(taskId, dto, SecurityUtils.getUserId());

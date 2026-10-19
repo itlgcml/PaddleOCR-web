@@ -2,6 +2,7 @@ package com.paddleocr.web.service.lawfirmselect;
 
 import com.paddleocr.web.model.PageResultVO;
 import com.paddleocr.web.model.dto.LawFirmSelectSaveDTO;
+import com.paddleocr.web.model.dto.LawFirmSelectSubmitDTO;
 import com.paddleocr.web.model.vo.LawFirmSelectVO;
 
 /**
@@ -37,6 +38,18 @@ public interface LawFirmSelectService {
      * @return 新记录 ID（字符串形式）
      */
     String saveLawFirmSelect(LawFirmSelectSaveDTO dto);
+
+    /**
+     * 新增律所选聘并直接提交审批（单事务原子完成，替代前端"建单 + 发起"两次请求）
+     *
+     * <p>用户级防重锁防双击；同一数据库事务内 insert 单据并复用发起流程逻辑，
+     * 发起失败（流程未发布/无发起权限/参数非法等）时单据一并回滚，不残留草稿。</p>
+     *
+     * @param dto 新增并提交请求（单据字段 + 发起参数）
+     * @param userId 当前登录用户 ID
+     * @return 流程实例 ID（字符串形式）
+     */
+    String createAndSubmit(LawFirmSelectSubmitDTO dto, Long userId);
 
     /**
      * 修改律所选聘记录（全字段可改）
