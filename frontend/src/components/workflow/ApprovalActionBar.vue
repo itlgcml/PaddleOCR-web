@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import ApprovalActionDialog from './ApprovalActionDialog.vue'
 import { ACTION_META, ACTION_ORDER, type ActionOption } from './approval-actions'
 import type { ApprovalActionKey, ApprovalActionPayload } from '@/types/workflow'
+import type { PendingSignTaskVO } from '@/types/approval'
 
 const props = withDefaults(
   defineProps<{
@@ -16,10 +17,12 @@ const props = withDefaults(
     manualRouteOptions?: ActionOption[]
     /** 人工路由是否多选（人工并行 true） */
     manualRouteMultiple?: boolean
+    /** 待办理加签任务（同意弹窗提示加签人未审并提供删除减签） */
+    pendingSignTasks?: PendingSignTaskVO[]
     /** 提交中：禁用按钮并锁定弹窗 */
     loading?: boolean
   }>(),
-  { actions: undefined, memberOptions: () => [], nodeOptions: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, loading: false },
+  { actions: undefined, memberOptions: () => [], nodeOptions: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, pendingSignTasks: () => [], loading: false },
 )
 
 const emit = defineEmits<{ (e: 'submit', payload: ApprovalActionPayload): void }>()
@@ -71,6 +74,7 @@ defineExpose({ close })
     :node-options="nodeOptions"
     :manual-route-options="manualRouteOptions"
     :manual-route-multiple="manualRouteMultiple"
+    :pending-sign-tasks="pendingSignTasks"
     :loading="loading"
     @submit="emit('submit', $event)"
   />

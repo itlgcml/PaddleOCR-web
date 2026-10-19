@@ -1,18 +1,14 @@
 package com.paddleocr.web.controller.approval;
 
 import com.paddleocr.web.common.ApiResponse;
-import com.paddleocr.web.common.BusinessException;
-import com.paddleocr.web.common.ResultCode;
 import com.paddleocr.web.model.PageResultVO;
 import com.paddleocr.web.model.dto.RuntimePageQuery;
 import com.paddleocr.web.model.vo.CcVO;
-import com.paddleocr.web.security.LoginUser;
+import com.paddleocr.web.security.SecurityUtils;
 import com.paddleocr.web.service.approval.FlowCcService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -64,7 +60,7 @@ public class FlowCcController {
     @Operation(summary = "标记已阅")
     @PostMapping("/{ccId}/read")
     public ApiResponse<Void> markRead(@PathVariable("ccId") Long ccId) {
-        flowCcService.markRead(ccId, currentUserId());
+        flowCcService.markRead(ccId, SecurityUtils.getUserId());
         return ApiResponse.ok();
     }
 
@@ -73,17 +69,6 @@ public class FlowCcController {
         query.setPageNum(pageNum);
         query.setPageSize(pageSize);
         query.setKeyword(keyword);
-        return flowCcService.pageMine(query, currentUserId(), read);
-    }
-
-    /**
-     * 从 SecurityContextHolder 取当前登录用户 ID
-     */
-    private Long currentUserId() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !(authentication.getPrincipal() instanceof LoginUser)) {
-            throw new BusinessException(ResultCode.UNAUTHORIZED);
-        }
-        return ((LoginUser) authentication.getPrincipal()).getUserId();
+        return flowCcService.pageMine(query, SecurityUtils.getUserId(), read);
     }
 }

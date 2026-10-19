@@ -100,9 +100,15 @@ async function onActionSubmit(payload: TaskActionPayload): Promise<void> {
   submitting.value = true
   try {
     await submitTaskAction(task.task.id, payload)
-    ElMessage.success('操作成功')
-    barRef.value?.close()
-    await loadAll()
+    if (payload.action === 'REDUCE_SIGN') {
+      // 减签：保持弹窗打开，刷新后同意弹窗内提示列表同步更新，可继续办理
+      ElMessage.success('已删除该加签任务')
+      await loadAll()
+    } else {
+      ElMessage.success('操作成功')
+      barRef.value?.close()
+      await loadAll()
+    }
   } catch {
     // 失败提示由拦截器统一处理，弹窗保持打开允许重试
   } finally {
@@ -166,6 +172,7 @@ function goBack(): void {
         :return-targets="actionableTask?.returnTargets ?? []"
         :manual-route-options="actionableTask?.manualRouteOptions ?? []"
         :manual-route-multiple="actionableTask?.manualRouteMultiple ?? false"
+        :pending-sign-tasks="actionableTask?.pendingSignTasks ?? []"
         :can-cancel="detail.canCancel"
         :loading="submitting"
         @submit="onActionSubmit"

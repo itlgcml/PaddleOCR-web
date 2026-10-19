@@ -16,13 +16,11 @@ import com.paddleocr.web.model.vo.NextApproverVO;
 import com.paddleocr.web.model.vo.NodeButtonsVO;
 import com.paddleocr.web.model.vo.StartableProcessVO;
 import com.paddleocr.web.model.vo.UserBriefVO;
-import com.paddleocr.web.security.LoginUser;
+import com.paddleocr.web.security.SecurityUtils;
 import com.paddleocr.web.service.approval.FlowInstanceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -57,7 +55,7 @@ public class FlowInstanceController {
     @Operation(summary = "可发起流程列表")
     @GetMapping("/startable")
     public ApiResponse<List<StartableProcessVO>> startable() {
-        return ApiResponse.ok(flowInstanceService.startable(currentUserId()));
+        return ApiResponse.ok(flowInstanceService.startable(SecurityUtils.getUserId()));
     }
 
     /**
@@ -66,7 +64,7 @@ public class FlowInstanceController {
     @Operation(summary = "发起流程")
     @PostMapping("/start")
     public ApiResponse<String> start(@RequestBody @Validated InstanceStartDTO dto) {
-        return ApiResponse.ok(flowInstanceService.start(dto, currentUserId()));
+        return ApiResponse.ok(flowInstanceService.start(dto, SecurityUtils.getUserId()));
     }
 
     /**
@@ -84,7 +82,7 @@ public class FlowInstanceController {
         query.setPageSize(pageSize);
         query.setStatus(status);
         query.setKeyword(keyword);
-        return ApiResponse.ok(flowInstanceService.pageMine(query, currentUserId()));
+        return ApiResponse.ok(flowInstanceService.pageMine(query, SecurityUtils.getUserId()));
     }
 
     /**
@@ -93,7 +91,7 @@ public class FlowInstanceController {
     @Operation(summary = "实例详情")
     @GetMapping("/{id}")
     public ApiResponse<InstanceDetailVO> detail(@PathVariable("id") Long id) {
-        return ApiResponse.ok(flowInstanceService.detail(id, currentUserId()));
+        return ApiResponse.ok(flowInstanceService.detail(id, SecurityUtils.getUserId()));
     }
 
     /**
@@ -103,7 +101,7 @@ public class FlowInstanceController {
     @PostMapping("/{id}/cancel")
     public ApiResponse<Void> cancel(@PathVariable("id") Long id,
                                     @RequestBody(required = false) InstanceCancelDTO dto) {
-        flowInstanceService.cancel(id, dto, currentUserId());
+        flowInstanceService.cancel(id, dto, SecurityUtils.getUserId());
         return ApiResponse.ok();
     }
 
@@ -113,7 +111,7 @@ public class FlowInstanceController {
     @Operation(summary = "预览下一审批节点审批人")
     @PostMapping("/next-approvers")
     public ApiResponse<NextApproverVO> nextApprovers(@RequestBody @Validated NextApproverQueryDTO dto) {
-        return ApiResponse.ok(flowInstanceService.nextApprovers(dto, currentUserId()));
+        return ApiResponse.ok(flowInstanceService.nextApprovers(dto, SecurityUtils.getUserId()));
     }
 
     /**
@@ -122,7 +120,7 @@ public class FlowInstanceController {
     @Operation(summary = "预览节点审批动作按钮")
     @PostMapping("/node-buttons")
     public ApiResponse<NodeButtonsVO> nodeButtons(@RequestBody @Validated NodeButtonsQueryDTO dto) {
-        return ApiResponse.ok(flowInstanceService.nodeButtons(dto, currentUserId()));
+        return ApiResponse.ok(flowInstanceService.nodeButtons(dto, SecurityUtils.getUserId()));
     }
 
     /**
@@ -162,16 +160,5 @@ public class FlowInstanceController {
             @RequestParam(value = "keyword", required = false) String keyword,
             @RequestParam(value = "limit", required = false, defaultValue = "50") Integer limit) {
         return ApiResponse.ok(flowInstanceService.principalUsers(keyword, limit == null ? 50 : limit));
-    }
-
-    /**
-     * 从 SecurityContextHolder 取当前登录用户 ID
-     */
-    private Long currentUserId() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !(authentication.getPrincipal() instanceof LoginUser)) {
-            throw new BusinessException(ResultCode.UNAUTHORIZED);
-        }
-        return ((LoginUser) authentication.getPrincipal()).getUserId();
     }
 }

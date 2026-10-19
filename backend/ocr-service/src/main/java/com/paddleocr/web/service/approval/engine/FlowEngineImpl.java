@@ -152,6 +152,14 @@ public class FlowEngineImpl implements FlowEngine {
         }
         EngineCtx ctx = support.loadCtx(instance, null);
         JsonNode node = ctx.getCursor().findNode(task.getNodeId());
+        // 前加签任务仅「同意」（+评论/抄送辅助动作）：PASS 后任务回到原审批人，由原审批人继续办理；
+        // 拒绝/退回/转办/委派/再加签不属于前加签人职责（与 TaskDetailVO.passOnlyButtons 口径一致）
+        if (SIGN_BEFORE.equals(task.getSignType())
+                && !TaskAction.PASS.equals(dto.getAction())
+                && !TaskAction.COMMENT.equals(dto.getAction())
+                && !TaskAction.COPY.equals(dto.getAction())) {
+            throw new BusinessException(ResultCode.TASK_ACTION_DISABLED, "前加签任务仅允许同意或评论");
+        }
         switch (dto.getAction()) {
             case TaskAction.PASS:
                 doPass(task, dto, operator, ctx, node);
@@ -168,6 +176,9 @@ public class FlowEngineImpl implements FlowEngine {
                 break;
             case TaskAction.ADD_SIGN:
                 doAddSign(task, dto, operator, ctx, node);
+                break;
+            case TaskAction.REDUCE_SIGN:
+                doReduceSign(task, dto, operator, ctx, node);
                 break;
             case TaskAction.COMMENT:
                 support.stageActionLog(ctx, task, node, TaskAction.COMMENT, operator, dto.getComment(), null);
@@ -417,6 +428,46 @@ public class FlowEngineImpl implements FlowEngine {
                 (before ? "向前加签【" : "向后加签【") + FlowApproverResolver.displayName(receiver) + "】");
         log.info("任务加签, sourceTaskId={}, signTaskId={}, receiverId={}",
                 task.getId(), signTask.getId(), receiver.getId());
+    }
+
+    /**
+     * 减签：发起加签人（当前任务 assignee，任务 PENDING 已由入口校验）删除自己直接派生且
+     * 未办理（PENDING）的前/后加签任务；目标任务之下若还有 PENDING 链上加签子任务则级联取消。
+     * 当前任务仍 PENDING → 节点必然未完成，取消挂起衍生任务无需推进判定：
+     * 前加签链清空即原任务解冻可办；后加签删除后原任务 PASS 时按正常链路推进。
+     */
+    private void doReduceSign(FlowTaskDO task, TaskActionDTO dto, UserDO operator, EngineCtx ctx, JsonNode node) {
+        Long targetId;
+        try {
+            targetId = Long.parseLong(dto.getTargetTaskId());
+        } catch (NumberFormatException e) {
+            throw new BusinessException(ResultCode.PARAM_ERROR, "减签目标任务 ID 不合法");
+        }
+        FlowTaskDO target = support.requireTask(targetId);
+        if (!task.getInstanceId().equals(target.getInstanceId())
+                || !task.getId().equals(target.getParentTaskId())
+                || !TaskStatus.PENDING.equals(target.getStatus())
+                || (!SIGN_BEFORE.equals(target.getSignType()) && !SIGN_AFTER.equals(target.getSignType()))) {
+            throw new BusinessException(ResultCode.TASK_REDUCE_SIGN_INVALID);
+        }
+        int removed = cancelSignChain(ctx, target);
+        support.stageActionLog(ctx, task, node, TaskAction.REDUCE_SIGN, operator, dto.getComment(),
+                "减签，移除加签人【" + target.getAssigneeName() + "】" + (removed > 1 ? "及其加签链共 " + removed + " 项" : ""));
+        log.info("任务减签, sourceTaskId={}, removedTaskIds={}, removed={}",
+                task.getId(), targetId, removed);
+    }
+
+    /** 级联取消目标任务及其下全部 PENDING 加签子任务（链上加签一并减掉），返回取消条数 */
+    private int cancelSignChain(EngineCtx ctx, FlowTaskDO target) {
+        int count = 1;
+        for (FlowTaskDO child : support.loadTasks(ctx, target.getNodeId())) {
+            if (target.getId().equals(child.getParentTaskId())
+                    && TaskStatus.PENDING.equals(child.getStatus())) {
+                count += cancelSignChain(ctx, child);
+            }
+        }
+        support.finishTask(target, TaskStatus.CANCELED, TaskAction.REDUCE_SIGN, null);
+        return count;
     }
 
     private void doCopy(FlowTaskDO task, TaskActionDTO dto, UserDO operator, EngineCtx ctx, JsonNode node) {

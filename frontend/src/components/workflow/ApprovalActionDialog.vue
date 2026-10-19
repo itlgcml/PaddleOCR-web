@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ACTION_META, type ActionField, type ActionOption, type ActionSubmit } from './approval-actions'
 import type { AddSignDirection, ApprovalActionKey, ApprovalActionPayload } from '@/types/workflow'
+import type { PendingSignTaskVO } from '@/types/approval'
 
 const props = withDefaults(
   defineProps<{
@@ -16,10 +17,12 @@ const props = withDefaults(
     manualRouteOptions?: ActionOption[]
     /** 人工路由是否多选（下一节点为人工并行时 true：多选 routeTargetIds；条件路由单选 routeTargetId） */
     manualRouteMultiple?: boolean
+    /** 待办理加签任务（PASS 时非空则提示加签人未同意，可删除减签） */
+    pendingSignTasks?: PendingSignTaskVO[]
     /** 提交中：锁定表单与按钮 */
     loading?: boolean
   }>(),
-  { memberOptions: () => [], nodeOptions: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, loading: false },
+  { memberOptions: () => [], nodeOptions: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, pendingSignTasks: () => [], loading: false },
 )
 
 const emit = defineEmits<{ (e: 'submit', payload: ApprovalActionPayload): void }>()
@@ -90,6 +93,19 @@ const assigneeBranches = computed(() => {
 
 function setRouteAssignee(branchId: string, value: unknown): void {
   routeAssignees[branchId] = typeof value === 'string' ? value : ''
+}
+
+/** 加签方向文案（与任务标签口径一致） */
+function signTypeLabel(signType: string): string {
+  return signType === 'BEFORE_SIGN' ? '向前加签' : '向后加签'
+}
+
+/** 删除未办理的加签任务（减签）：直接上抛载荷，父组件提交后刷新详情，弹窗保持打开 */
+function onReduceSign(taskId: string): void {
+  if (props.loading) {
+    return
+  }
+  emit('submit', { action: 'REDUCE_SIGN', targetTaskId: taskId, comment: '' })
 }
 
 /** 每个操作的下拉数据源：退回节点取 nodeOptions，其余取人员 */
@@ -215,6 +231,17 @@ function beforeClose(done: () => void): void {
       class="approval-form"
       @submit.prevent
     >
+      <div v-if="meta?.key === 'PASS' && pendingSignTasks.length > 0" class="pending-sign-tip">
+        <div class="pending-sign-title">以下加签人还没有同意，可删除其加签任务（减签）后再继续</div>
+        <div v-for="sign in pendingSignTasks" :key="sign.taskId" class="pending-sign-row">
+          <span class="pending-sign-name">{{ sign.assigneeName }}</span>
+          <el-tag size="small" effect="plain">{{ signTypeLabel(sign.signType) }}</el-tag>
+          <el-button type="danger" text size="small" :disabled="loading" @click="onReduceSign(sign.taskId)">
+            删除
+          </el-button>
+        </div>
+      </div>
+
       <el-form-item
         v-if="meta?.key === 'PASS' && manualRouteOptions.length > 0"
         :label="manualRouteMultiple ? '执行分支' : '下一步'"
@@ -312,6 +339,33 @@ function beforeClose(done: () => void): void {
 
 .approval-field {
   width: 100%;
+}
+
+.pending-sign-tip {
+  margin-bottom: 20px;
+  padding: 10px 12px;
+  background-color: #fdf6ec;
+  border: 1px solid #faecd8;
+  border-radius: 6px;
+}
+
+.pending-sign-title {
+  margin-bottom: 6px;
+  font-size: 13px;
+  line-height: 20px;
+  color: #b88230;
+}
+
+.pending-sign-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.pending-sign-name {
+  font-size: 14px;
+  line-height: 22px;
+  color: #303133;
 }
 
 .approval-field-tip {

@@ -22,10 +22,10 @@ public class TaskActionDTO implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    @Schema(description = "动作：PASS/REJECT/COMMENT/COPY/TRANSFER/DELEGATE/ADD_SIGN/RETURN")
+    @Schema(description = "动作：PASS/REJECT/COMMENT/COPY/TRANSFER/DELEGATE/ADD_SIGN/RETURN/REDUCE_SIGN")
     @NotBlank(message = "动作类型不能为空")
-    @Pattern(regexp = "^(PASS|REJECT|COMMENT|COPY|TRANSFER|DELEGATE|ADD_SIGN|RETURN)$",
-            message = "动作类型仅支持 PASS/REJECT/COMMENT/COPY/TRANSFER/DELEGATE/ADD_SIGN/RETURN")
+    @Pattern(regexp = "^(PASS|REJECT|COMMENT|COPY|TRANSFER|DELEGATE|ADD_SIGN|RETURN|REDUCE_SIGN)$",
+            message = "动作类型仅支持 PASS/REJECT/COMMENT/COPY/TRANSFER/DELEGATE/ADD_SIGN/RETURN/REDUCE_SIGN")
     private String action;
 
     @Schema(description = "审批意见；REJECT/RETURN 必填", maxLength = 512)
@@ -55,4 +55,7 @@ public class TaskActionDTO implements Serializable {
     @Schema(description = "加签方向：ADD_SIGN 必填（BEFORE/AFTER）")
     @Pattern(regexp = "^(BEFORE|AFTER)$", message = "加签方向仅支持 BEFORE/AFTER")
     private String direction;
+
+    @Schema(description = "减签目标任务 ID：REDUCE_SIGN 必填——须为当前任务直接派生且 PENDING 的加签任务（BEFORE_SIGN/AFTER_SIGN）")
+    private String targetTaskId;
 }

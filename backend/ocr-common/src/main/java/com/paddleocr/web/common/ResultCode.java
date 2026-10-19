@@ -115,6 +115,8 @@ public enum ResultCode {
     TASK_MANUAL_ROUTE_REQUIRED(40062, "请选择下一步审批"),
     /** 人工路由目标不合法（routeTargetId 不是该人工路由节点的分支列） */
     TASK_MANUAL_ROUTE_INVALID(40063, "人工路由目标不合法"),
+    /** 减签目标任务不合法（非当前任务直接派生的 PENDING 加签任务，或已办理） */
+    TASK_REDUCE_SIGN_INVALID(40064, "减签目标任务不合法或不可删除"),
 
     // ---- 律所选聘域 ----
     /** 律所选聘记录不存在（查无 / 已删） */

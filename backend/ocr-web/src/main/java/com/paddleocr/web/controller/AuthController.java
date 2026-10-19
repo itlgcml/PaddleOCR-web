@@ -12,6 +12,7 @@ import com.paddleocr.web.model.vo.LoginVO;
 import com.paddleocr.web.model.vo.TokenVO;
 import com.paddleocr.web.model.vo.UserInfoVO;
 import com.paddleocr.web.security.LoginUser;
+import com.paddleocr.web.security.SecurityUtils;
 import com.paddleocr.web.service.AuthService;
 import com.paddleocr.web.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -23,7 +24,6 @@ import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.authentication.LockedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -103,8 +103,7 @@ public class AuthController {
     @Operation(summary = "当前用户信息")
     @GetMapping("/me")
     public ApiResponse<UserInfoVO> me() {
-        LoginUser loginUser = currentLoginUser();
-        return ApiResponse.ok(userService.getUserInfo(loginUser.getUserId()));
+        return ApiResponse.ok(userService.getUserInfo(SecurityUtils.getUserId()));
     }
 
     /**
@@ -126,17 +125,6 @@ public class AuthController {
         if (user != null) {
             userService.recordLoginFailure(user.getId());
         }
-    }
-
-    /**
-     * 从 SecurityContextHolder 取当前登录用户
-     */
-    private LoginUser currentLoginUser() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !(authentication.getPrincipal() instanceof LoginUser)) {
-            throw new BusinessException(ResultCode.UNAUTHORIZED);
-        }
-        return (LoginUser) authentication.getPrincipal();
     }
 
     /**

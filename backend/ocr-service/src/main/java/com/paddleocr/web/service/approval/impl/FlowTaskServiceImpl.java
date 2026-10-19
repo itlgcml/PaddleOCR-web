@@ -11,8 +11,10 @@ import com.paddleocr.web.mapper.entity.UserDO;
 import com.paddleocr.web.model.PageResultVO;
 import com.paddleocr.web.model.dto.RuntimePageQuery;
 import com.paddleocr.web.model.dto.TaskActionDTO;
+import com.paddleocr.web.model.vo.ApproverButtonVO;
 import com.paddleocr.web.model.vo.InstanceDetailVO;
 import com.paddleocr.web.model.vo.ManualRouteOptionVO;
+import com.paddleocr.web.model.vo.PendingSignTaskVO;
 import com.paddleocr.web.model.vo.ReturnTargetVO;
 import com.paddleocr.web.model.vo.TaskDetailVO;
 import com.paddleocr.web.model.vo.TaskVO;
@@ -59,6 +61,13 @@ import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.typeOf;
 public class FlowTaskServiceImpl implements FlowTaskService {
 
     private static final String ACTION_RETURN = "RETURN";
+    private static final String ACTION_PASS = "PASS";
+
+    /** 前加签任务派生类型（与 FlowEngineImpl 同值） */
+    private static final String SIGN_BEFORE = "BEFORE_SIGN";
+
+    /** 后加签任务派生类型（与 FlowEngineImpl 同值） */
+    private static final String SIGN_AFTER = "AFTER_SIGN";
 
     private final FlowTaskMapper flowTaskMapper;
     private final FlowInstanceMapper flowInstanceMapper;
@@ -107,12 +116,19 @@ public class FlowTaskServiceImpl implements FlowTaskService {
         vo.setManualRouteMultiple(false);
         if (cursor != null) {
             JsonNode node = cursor.findNode(task.getNodeId());
-            vo.setButtons(support.readButtons(node));
-            vo.setReturnTargets(buildReturnTargets(cursor, node, task));
-            vo.setManualRouteOptions(buildManualRouteOptions(node,
-                    instance == null ? null : instance.getStartUserId()));
-            vo.setManualRouteMultiple(node != null && isManualParallel(chainNext(node)));
+            if (SIGN_BEFORE.equals(task.getSignType())) {
+                // 前加签任务：仅「同意」+审批意见（评论恒可用），不选路、不退回——PASS 后任务回到原审批人，
+                // 由原审批人人工办理（含人工路由选择）；避免加签人误看到节点后继的人工路由选项
+                vo.setButtons(passOnlyButtons(node));
+            } else {
+                vo.setButtons(support.readButtons(node));
+                vo.setReturnTargets(buildReturnTargets(cursor, node, task));
+                vo.setManualRouteOptions(buildManualRouteOptions(node,
+                        instance == null ? null : instance.getStartUserId()));
+                vo.setManualRouteMultiple(node != null && isManualParallel(chainNext(node)));
+            }
         }
+        vo.setPendingSignTasks(buildPendingSignTasks(task));
         vo.setActionable(userId.equals(task.getAssigneeId())
                 && TaskStatus.PENDING.equals(task.getStatus()));
         return vo;
@@ -201,6 +217,51 @@ public class FlowTaskServiceImpl implements FlowTaskService {
             vo.setStartUserName(instance.getStartUserName());
         }
         return vo;
+    }
+
+    /**
+     * 前加签任务按钮：仅保留「同意」（沿用节点配置的 PASS 文案与启用状态；未配置时回退默认「同意」）。
+     * 评论/抄送为辅助动作由前端恒可用，不经此列表下发；其余办理类按钮（拒绝/退回/转办/委派/加签）
+     * 与人工路由均不属于前加签人职责——其 PASS 后任务回到原审批人，由原审批人继续人工办理。
+     */
+    private List<ApproverButtonVO> passOnlyButtons(JsonNode node) {
+        for (ApproverButtonVO button : support.readButtons(node)) {
+            if (ACTION_PASS.equals(button.getKey())) {
+                return Collections.singletonList(button);
+            }
+        }
+        ApproverButtonVO pass = new ApproverButtonVO();
+        pass.setKey(ACTION_PASS);
+        pass.setLabel("同意");
+        pass.setEnabled(true);
+        return Collections.singletonList(pass);
+    }
+
+    /**
+     * 待办理加签任务：当前任务直接派生（parentTaskId=当前任务）且 PENDING 的前/后加签任务。
+     * 发起加签人同意前据此提示「加签人还没有同意」，并可携带 taskId 发起 REDUCE_SIGN 减签；
+     * 加签任务自身无派生链查询意义（其上再加签属链上加签，由该加签人自己办理），返回空。
+     */
+    private List<PendingSignTaskVO> buildPendingSignTasks(FlowTaskDO task) {
+        if (task.getId() == null) {
+            return Collections.emptyList();
+        }
+        List<FlowTaskDO> signs = flowTaskMapper.selectList(new LambdaQueryWrapper<FlowTaskDO>()
+                .eq(FlowTaskDO::getInstanceId, task.getInstanceId())
+                .eq(FlowTaskDO::getParentTaskId, task.getId())
+                .eq(FlowTaskDO::getStatus, TaskStatus.PENDING)
+                .in(FlowTaskDO::getSignType, Arrays.asList(SIGN_BEFORE, SIGN_AFTER)));
+        List<PendingSignTaskVO> vos = new ArrayList<>(signs.size());
+        for (FlowTaskDO sign : signs) {
+            PendingSignTaskVO vo = new PendingSignTaskVO();
+            vo.setTaskId(String.valueOf(sign.getId()));
+            vo.setSignType(sign.getSignType());
+            vo.setAssigneeId(String.valueOf(sign.getAssigneeId()));
+            vo.setAssigneeName(sign.getAssigneeName());
+            vo.setCreateTime(sign.getCreateTime());
+            vos.add(vo);
+        }
+        return vos;
     }
 
     /**

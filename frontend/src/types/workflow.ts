@@ -277,5 +277,6 @@ export type ApprovalActionPayload =
   | { action: 'COPY'; receiverIds: string[]; comment: string }
   | { action: 'TRANSFER' | 'DELEGATE'; receiverId: string; comment: string }
   | { action: 'ADD_SIGN'; receiverId: string; comment: string; direction: AddSignDirection }
+  | { action: 'REDUCE_SIGN'; targetTaskId: string; comment: string }
   | { action: 'RETURN'; targetNodeId: string; comment: string }
   | { action: 'CANCEL'; comment: string }

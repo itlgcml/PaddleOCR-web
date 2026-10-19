@@ -35,6 +35,9 @@ public class TaskDetailVO extends InstanceDetailVO implements Serializable {
     @Schema(description = "人工路由是否多选：下一节点为人工并行（PARALLEL routing=MANUAL）时 true，PASS 携带 routeTargetIds 多选；人工条件路由为单选 routeTargetId")
     private Boolean manualRouteMultiple;
 
+    @Schema(description = "当前任务直接派生且 PENDING 的加签任务（发起加签人视角：同意前提示加签人未审，可携带 targetTaskId 发起 REDUCE_SIGN 减签）")
+    private List<PendingSignTaskVO> pendingSignTasks;
+
     @Schema(description = "当前用户=assignee 且任务 PENDING（前端据此启用操作栏）")
     private Boolean actionable;
 }

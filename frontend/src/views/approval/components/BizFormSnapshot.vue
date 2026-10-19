@@ -88,8 +88,8 @@ const genericEntries = computed<Array<[string, string]>>(() => Object.entries(sn
       </el-descriptions-item>
     </el-descriptions>
 
-    <el-empty v-else description="暂无表单快照" :image-size="72" />
-    <div class="biz-snapshot-tip">以下为发起时的表单内容快照，单据后续修改不反映在此处</div>
+    <el-empty v-else description="暂无业务快照" :image-size="72" />
+    <div class="biz-snapshot-tip">以下为发起时的业务内容快照，单据后续修改不反映在此处</div>
   </div>
 </template>
 

@@ -186,6 +186,20 @@ export interface ManualRouteOptionVO {
   assigneeOptions: UserBriefVO[]
 }
 
+/** 待办理加签任务（PendingSignTaskVO 镜像：同意前提示加签人未审，可删除减签） */
+export interface PendingSignTaskVO {
+  /** 加签任务 ID，REDUCE_SIGN 时作为 targetTaskId 回传 */
+  taskId: string
+  /** 派生类型：BEFORE_SIGN=向前加签 AFTER_SIGN=向后加签 */
+  signType: string
+  /** 加签人 ID */
+  assigneeId: string
+  /** 加签人姓名 */
+  assigneeName: string
+  /** 任务到达时间 */
+  createTime: string
+}
+
 /** 任务办理视图（TaskDetailVO 镜像 = 实例详情 + 任务本体 / 按钮 / 退回目标 / 人工路由选项） */
 export interface TaskDetailVO extends InstanceDetailVO {
   task: TaskVO
@@ -195,6 +209,8 @@ export interface TaskDetailVO extends InstanceDetailVO {
   manualRouteOptions: ManualRouteOptionVO[]
   /** 人工路由是否多选：下一节点为人工并行（PARALLEL routing=MANUAL）时 true，PASS 携带 routeTargetIds 多选 */
   manualRouteMultiple: boolean
+  /** 当前任务直接派生且 PENDING 的加签任务：非空时同意弹窗提示「加签人还没有同意」并提供删除减签 */
+  pendingSignTasks: PendingSignTaskVO[]
   /** 当前用户=assignee 且任务 PENDING */
   actionable: boolean
 }

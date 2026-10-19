@@ -10,13 +10,11 @@ import com.paddleocr.web.model.dto.UserPageQuery;
 import com.paddleocr.web.model.dto.UserRoleAssignDTO;
 import com.paddleocr.web.model.dto.UserStatusDTO;
 import com.paddleocr.web.model.vo.UserPageVO;
-import com.paddleocr.web.security.LoginUser;
+import com.paddleocr.web.security.SecurityUtils;
 import com.paddleocr.web.service.system.UserAdminService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -109,12 +107,9 @@ public class UserAdminController {
      * 拒绝对当前登录用户自己的操作（防管理员自锁）
      */
     private void rejectSelfOperation(Long targetUserId) {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication != null && authentication.getPrincipal() instanceof LoginUser) {
-            Long currentUserId = ((LoginUser) authentication.getPrincipal()).getUserId();
-            if (currentUserId.equals(targetUserId)) {
-                throw new BusinessException(ResultCode.FORBIDDEN);
-            }
+        Long currentUserId = SecurityUtils.tryGetUserId();
+        if (currentUserId != null && currentUserId.equals(targetUserId)) {
+            throw new BusinessException(ResultCode.FORBIDDEN);
         }
     }
 }

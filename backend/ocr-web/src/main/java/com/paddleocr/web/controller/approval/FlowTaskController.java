@@ -1,20 +1,16 @@
 package com.paddleocr.web.controller.approval;
 
 import com.paddleocr.web.common.ApiResponse;
-import com.paddleocr.web.common.BusinessException;
-import com.paddleocr.web.common.ResultCode;
 import com.paddleocr.web.model.PageResultVO;
 import com.paddleocr.web.model.dto.RuntimePageQuery;
 import com.paddleocr.web.model.dto.TaskActionDTO;
 import com.paddleocr.web.model.vo.TaskDetailVO;
 import com.paddleocr.web.model.vo.TaskVO;
-import com.paddleocr.web.security.LoginUser;
+import com.paddleocr.web.security.SecurityUtils;
 import com.paddleocr.web.service.approval.FlowTaskService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -51,7 +47,7 @@ public class FlowTaskController {
         query.setPageNum(pageNum);
         query.setPageSize(pageSize);
         query.setKeyword(keyword);
-        return ApiResponse.ok(flowTaskService.pageTodo(query, currentUserId()));
+        return ApiResponse.ok(flowTaskService.pageTodo(query, SecurityUtils.getUserId()));
     }
 
     /**
@@ -69,7 +65,7 @@ public class FlowTaskController {
         query.setPageSize(pageSize);
         query.setKeyword(keyword);
         query.setAction(action);
-        return ApiResponse.ok(flowTaskService.pageDone(query, currentUserId()));
+        return ApiResponse.ok(flowTaskService.pageDone(query, SecurityUtils.getUserId()));
     }
 
     /**
@@ -78,7 +74,7 @@ public class FlowTaskController {
     @Operation(summary = "任务办理视图")
     @GetMapping("/{taskId}")
     public ApiResponse<TaskDetailVO> detail(@PathVariable("taskId") Long taskId) {
-        return ApiResponse.ok(flowTaskService.detail(taskId, currentUserId()));
+        return ApiResponse.ok(flowTaskService.detail(taskId, SecurityUtils.getUserId()));
     }
 
     /**
@@ -88,18 +84,7 @@ public class FlowTaskController {
     @PostMapping("/{taskId}/action")
     public ApiResponse<Void> action(@PathVariable("taskId") Long taskId,
                                     @RequestBody @Validated TaskActionDTO dto) {
-        flowTaskService.action(taskId, dto, currentUserId());
+        flowTaskService.action(taskId, dto, SecurityUtils.getUserId());
         return ApiResponse.ok();
-    }
-
-    /**
-     * 从 SecurityContextHolder 取当前登录用户 ID
-     */
-    private Long currentUserId() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !(authentication.getPrincipal() instanceof LoginUser)) {
-            throw new BusinessException(ResultCode.UNAUTHORIZED);
-        }
-        return ((LoginUser) authentication.getPrincipal()).getUserId();
     }
 }

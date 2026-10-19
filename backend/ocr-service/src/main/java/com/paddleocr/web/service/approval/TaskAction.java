@@ -29,6 +29,9 @@ public final class TaskAction {
     /** 加签（direction 区分 BEFORE/AFTER） */
     public static final String ADD_SIGN = "ADD_SIGN";
 
+    /** 减签（发起加签人删除自己派生的未办理加签任务，targetTaskId 指定） */
+    public static final String REDUCE_SIGN = "REDUCE_SIGN";
+
     /** 重新提交（退回发起人后发起人再次提交） */
     public static final String SUBMIT = "SUBMIT";
 

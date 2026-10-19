@@ -6,7 +6,7 @@ import { fetchPrincipalUsers } from '@/api/approval-runtime'
 import type { PrincipalOption } from '@/composables/usePrincipalOptions'
 import type { ApprovalActionKey, ApprovalActionPayload } from '@/types/workflow'
 import type { ApproverButtonVO, ReturnTargetVO, TaskActionPayload } from '@/api/approval-runtime'
-import type { ManualRouteOptionVO } from '@/types/approval'
+import type { ManualRouteOptionVO, PendingSignTaskVO } from '@/types/approval'
 
 /**
  * 运行态操作栏：节点按钮快照 → ApprovalActionKey 列表（COMMENT/COPY 恒可用，与后端口径一致）；
@@ -18,6 +18,7 @@ const props = defineProps<{
   returnTargets: ReturnTargetVO[]
   manualRouteOptions: ManualRouteOptionVO[]
   manualRouteMultiple: boolean
+  pendingSignTasks: PendingSignTaskVO[]
   canCancel: boolean
   loading: boolean
 }>()
@@ -133,6 +134,7 @@ async function onCancel(): Promise<void> {
       :node-options="nodeOptions"
       :manual-route-options="routeOptions"
       :manual-route-multiple="props.manualRouteMultiple"
+      :pending-sign-tasks="props.pendingSignTasks"
       :loading="props.loading"
       @submit="onSubmit"
     />

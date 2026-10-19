@@ -10,6 +10,7 @@ const ACTION_LABELS: Record<string, string> = {
   TRANSFER: '转办',
   DELEGATE: '委派',
   ADD_SIGN: '加签',
+  REDUCE_SIGN: '减签',
   SUBMIT: '重新提交',
   CANCEL: '撤销',
   COMMENT: '评论',
