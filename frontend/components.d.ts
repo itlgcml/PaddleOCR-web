@@ -11,6 +11,7 @@ declare module 'vue' {
     AddNodeButton: typeof import('./src/components/workflow/AddNodeButton.vue')['default']
     ApprovalActionBar: typeof import('./src/components/workflow/ApprovalActionBar.vue')['default']
     ApprovalActionDialog: typeof import('./src/components/workflow/ApprovalActionDialog.vue')['default']
+    ApprovalActionPanel: typeof import('./src/components/workflow/ApprovalActionPanel.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElAside: typeof import('element-plus/es')['ElAside']
     ElButton: typeof import('element-plus/es')['ElButton']

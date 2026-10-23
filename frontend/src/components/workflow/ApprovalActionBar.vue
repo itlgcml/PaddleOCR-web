@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import ApprovalActionDialog from './ApprovalActionDialog.vue'
+import { computed, ref, watch } from 'vue'
+import ApprovalActionPanel from './ApprovalActionPanel.vue'
 import { ACTION_META, ACTION_ORDER, type ActionOption } from './approval-actions'
 import type { ApprovalActionKey, ApprovalActionPayload } from '@/types/workflow'
 import type { PendingSignTaskVO, SubProcessApproverOptionVO } from '@/types/approval'
@@ -17,11 +17,11 @@ const props = withDefaults(
     manualRouteOptions?: ActionOption[]
     /** 人工路由是否多选（人工并行 true） */
     manualRouteMultiple?: boolean
-    /** 待办理加签任务（同意弹窗提示加签人未审并提供删除减签） */
+    /** 待办理加签任务（同意面板提示加签人未审并提供删除减签） */
     pendingSignTasks?: PendingSignTaskVO[]
     /** 子流程下一节点可指定审批人目标（PASS 且下一节点为子流程启动后继续时非空） */
     subProcessApproverOptions?: SubProcessApproverOptionVO[]
-    /** 提交中：禁用按钮并锁定弹窗 */
+    /** 提交中：禁用按钮并锁定面板 */
     loading?: boolean
   }>(),
   { actions: undefined, memberOptions: () => [], nodeOptions: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, pendingSignTasks: () => [], subProcessApproverOptions: () => [], loading: false },
@@ -29,61 +29,85 @@ const props = withDefaults(
 
 const emit = defineEmits<{ (e: 'submit', payload: ApprovalActionPayload): void }>()
 
-const visible = defineModel<boolean>('visible', { default: false })
-
+/** 当前展开的操作；始终有一个在展示，不可收起 */
 const activeAction = ref<ApprovalActionKey | null>(null)
+
+// 默认展开第一个可用操作（PASS 在首位时即默认「通过」表单）；
+// 按钮集变化（提交成功刷新等）时，当前选中仍在列表则保持，否则回退首个
+watch(
+  () => props.actions,
+  (list) => {
+    const available = list ?? ACTION_ORDER
+    if (activeAction.value && available.includes(activeAction.value)) {
+      return
+    }
+    activeAction.value = available[0] ?? null
+  },
+  { immediate: true },
+)
 
 const buttons = computed(() => (props.actions ?? ACTION_ORDER).map((key) => ACTION_META[key]))
 
-function openDialog(key: ApprovalActionKey): void {
-  if (props.loading) {
+/** 切换展开的操作；点当前已选中按钮保持展开不收起 */
+function selectAction(key: ApprovalActionKey): void {
+  if (props.loading || key === activeAction.value) {
     return
   }
   activeAction.value = key
-  visible.value = true
 }
 
-/** 关闭弹窗（父组件提交成功后调用） */
-function close(): void {
-  visible.value = false
-  activeAction.value = null
+const panelRef = ref<InstanceType<typeof ApprovalActionPanel>>()
+
+/** 提交成功后重置：回到默认操作并清空表单 */
+function reset(): void {
+  activeAction.value = (props.actions ?? ACTION_ORDER)[0] ?? null
+  panelRef.value?.resetForm()
 }
 
-defineExpose({ close })
+defineExpose({ reset })
 </script>
 
 <template>
-  <div class="approval-bar">
-    <el-button
-      v-for="item in buttons"
-      :key="item.key"
-      :plain="item.skin === 'plain'"
-      :text="item.skin === 'text'"
-      :type="item.type"
-      :disabled="loading"
-      class="approval-bar-btn"
-      @click="openDialog(item.key)"
-    >
-      <el-icon class="approval-bar-icon"><component :is="item.icon" /></el-icon>
-      <span>{{ item.label }}</span>
-    </el-button>
-  </div>
+  <div class="approval-actions">
+    <div class="approval-bar">
+      <el-button
+        v-for="item in buttons"
+        :key="item.key"
+        :plain="item.key === activeAction"
+        :text="item.key !== activeAction"
+        :type="item.key === activeAction ? 'success' : undefined"
+        :disabled="loading"
+        :class="{ 'is-selected': item.key === activeAction }"
+        class="approval-bar-btn"
+        @click="selectAction(item.key)"
+      >
+        <el-icon class="approval-bar-icon"><component :is="item.icon" /></el-icon>
+        <span>{{ item.label }}</span>
+      </el-button>
+    </div>
 
-  <ApprovalActionDialog
-    v-model="visible"
-    :action="activeAction"
-    :member-options="memberOptions"
-    :node-options="nodeOptions"
-    :manual-route-options="manualRouteOptions"
-    :manual-route-multiple="manualRouteMultiple"
-    :sub-process-approver-options="subProcessApproverOptions"
-    :pending-sign-tasks="pendingSignTasks"
-    :loading="loading"
-    @submit="emit('submit', $event)"
-  />
+    <template v-if="activeAction">
+      <ApprovalActionPanel
+        ref="panelRef"
+        :action="activeAction"
+        :member-options="memberOptions"
+        :node-options="nodeOptions"
+        :manual-route-options="manualRouteOptions"
+        :manual-route-multiple="manualRouteMultiple"
+        :sub-process-approver-options="subProcessApproverOptions"
+        :pending-sign-tasks="pendingSignTasks"
+        :loading="loading"
+        @submit="emit('submit', $event)"
+      />
+    </template>
+  </div>
 </template>
 
 <style scoped>
+.approval-actions {
+  width: 100%;
+}
+
 .approval-bar {
   display: flex;
   flex-wrap: wrap;
@@ -106,7 +130,7 @@ defineExpose({ close })
   font-size: 16px;
 }
 
-/* 通过：浅绿底 + 绿字；悬停反色 */
+/* 选中按钮：浅绿底 + 绿字；悬停反色 */
 .approval-bar :deep(.el-button--success.is-plain) {
   color: #52c41a;
   background-color: #f6ffed;
@@ -119,33 +143,7 @@ defineExpose({ close })
   border-color: #52c41a;
 }
 
-/* 拒绝：浅红底 + 红字 */
-.approval-bar :deep(.el-button--danger.is-plain) {
-  color: #f5222d;
-  background-color: #fff1f0;
-  border-color: #ffccc7;
-}
-
-.approval-bar :deep(.el-button--danger.is-plain:hover) {
-  color: #ffffff;
-  background-color: #f5222d;
-  border-color: #f5222d;
-}
-
-/* 评论：浅蓝底 + 蓝字 */
-.approval-bar :deep(.el-button--primary.is-plain) {
-  color: #409eff;
-  background-color: #ecf5ff;
-  border-color: #b3d8ff;
-}
-
-.approval-bar :deep(.el-button--primary.is-plain:hover) {
-  color: #ffffff;
-  background-color: #409eff;
-  border-color: #409eff;
-}
-
-/* 抄送/转办/委派/加签/退回/取消：无边框文字按钮 */
+/* 全部操作按钮（未选中）：无边框文字按钮 */
 .approval-bar :deep(.el-button.is-text) {
   padding: 0 8px;
   font-weight: 500;
@@ -155,5 +153,26 @@ defineExpose({ close })
 .approval-bar :deep(.el-button.is-text:hover) {
   color: #409eff;
   background-color: transparent;
+}
+
+/* 选中按钮右上角「当前选择」角标 */
+.approval-bar-btn.is-selected {
+  position: relative;
+}
+
+.approval-bar-btn.is-selected::after {
+  content: '当前选择';
+  position: absolute;
+  top: -9px;
+  right: -10px;
+  z-index: 1;
+  padding: 0 7px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 17px;
+  color: #ffffff;
+  pointer-events: none;
+  background-color: #52c41a;
+  border-radius: 9px;
 }
 </style>

@@ -101,16 +101,16 @@ async function onActionSubmit(payload: TaskActionPayload): Promise<void> {
   try {
     await submitTaskAction(task.task.id, payload)
     if (payload.action === 'REDUCE_SIGN') {
-      // 减签：保持弹窗打开，刷新后同意弹窗内提示列表同步更新，可继续办理
+      // 减签：保持面板展开，刷新后同意面板内提示列表同步更新，可继续办理
       ElMessage.success('已删除该加签任务')
       await loadAll()
     } else {
       ElMessage.success('操作成功')
-      barRef.value?.close()
+      barRef.value?.reset()
       await loadAll()
     }
   } catch {
-    // 失败提示由拦截器统一处理，弹窗保持打开允许重试
+    // 失败提示由拦截器统一处理，面板保持展开允许重试
   } finally {
     submitting.value = false
   }

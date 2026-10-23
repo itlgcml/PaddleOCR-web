@@ -7,8 +7,8 @@ import type { PendingSignTaskVO, SubProcessApproverOptionVO } from '@/types/appr
 
 const props = withDefaults(
   defineProps<{
-    /** 当前打开的操作；null 表示未选择 */
-    action: ApprovalActionKey | null
+    /** 当前展示的操作（面板始终渲染，由父级切换） */
+    action: ApprovalActionKey
     /** 人员下拉选项（抄送人 / 新审批人 / 接收人 / 加签处理人） */
     memberOptions?: ActionOption[]
     /** 退回节点下拉选项 */
@@ -29,8 +29,6 @@ const props = withDefaults(
 
 const emit = defineEmits<{ (e: 'submit', payload: ApprovalActionPayload): void }>()
 
-const visible = defineModel<boolean>({ required: true })
-
 type FormValue = string | string[]
 type ActionForm = Record<string, FormValue>
 
@@ -43,7 +41,7 @@ const routeAssignees = reactive<Record<string, string>>({})
 /** 子流程目标节点指定审批人（nodeId → userId）：仅对候选审批人非空的目标节点生效，可选 */
 const subProcessAssignees = reactive<Record<string, string>>({})
 
-const meta = computed(() => (props.action ? ACTION_META[props.action] : null))
+const meta = computed(() => ACTION_META[props.action])
 
 const rules = computed<FormRules>(() => {
   const result: FormRules = {}
@@ -73,13 +71,10 @@ const rules = computed<FormRules>(() => {
   return result
 })
 
+/** 切换操作时重置表单，避免上一次输入残留 */
 watch(
-  () => [visible.value, props.action] as const,
-  ([open]) => {
-    if (open) {
-      resetForm()
-    }
-  },
+  () => props.action,
+  () => resetForm(),
   { immediate: true },
 )
 
@@ -104,7 +99,7 @@ function setSubProcessAssignee(nodeId: string, value: unknown): void {
   subProcessAssignees[nodeId] = typeof value === 'string' ? value : ''
 }
 
-/** 子流程名（PASS 弹窗标题标注用） */
+/** 子流程名（PASS 面板标注用） */
 const subProcessName = computed(() =>
   props.subProcessApproverOptions.find((opt) => opt.scopeType === 'SUB_PROCESS')?.scopeName ?? '',
 )
@@ -121,7 +116,7 @@ function signTypeLabel(signType: string): string {
   return signType === 'BEFORE_SIGN' ? '向前加签' : '向后加签'
 }
 
-/** 删除未办理的加签任务（减签）：直接上抛载荷，父组件提交后刷新详情，弹窗保持打开 */
+/** 删除未办理的加签任务（减签）：直接上抛载荷，父组件提交后刷新详情，面板保持展开 */
 function onReduceSign(taskId: string): void {
   if (props.loading) {
     return
@@ -220,7 +215,7 @@ function buildPayload(action: ApprovalActionKey, direction?: AddSignDirection): 
   }
 }
 
-/** 每次打开重置表单，避免上一次输入残留 */
+/** 重置表单（切换操作 / 提交成功后由父级调用） */
 function resetForm(): void {
   for (const key of Object.keys(form)) {
     delete form[key]
@@ -239,33 +234,24 @@ function resetForm(): void {
   formRef.value?.clearValidate()
 }
 
-/** 提交中禁止关闭弹框 */
-function beforeClose(done: () => void): void {
-  if (!props.loading) {
-    done()
-  }
-}
+defineExpose({ resetForm })
 </script>
 
 <template>
-  <el-dialog
-    v-model="visible"
-    width="520px"
-    align-center
-    :show-close="false"
-    :close-on-click-modal="!loading"
-    :close-on-press-escape="!loading"
-    :before-close="beforeClose"
-  >
+  <div class="approval-panel">
+    <div class="approval-panel-header">
+      <span class="approval-panel-title">{{ meta.label }}</span>
+    </div>
     <el-form
       ref="formRef"
       :model="form"
       :rules="rules"
-      label-position="top"
+      label-position="left"
+      label-width="96px"
       class="approval-form"
       @submit.prevent
     >
-      <div v-if="meta?.key === 'PASS' && pendingSignTasks.length > 0" class="pending-sign-tip">
+      <div v-if="meta.key === 'PASS' && pendingSignTasks.length > 0" class="pending-sign-tip">
         <div class="pending-sign-title">以下加签人还没有同意，可删除其加签任务（减签）后再继续</div>
         <div v-for="sign in pendingSignTasks" :key="sign.taskId" class="pending-sign-row">
           <span class="pending-sign-name">{{ sign.assigneeName }}</span>
@@ -277,7 +263,7 @@ function beforeClose(done: () => void): void {
       </div>
 
       <el-form-item
-        v-if="meta?.key === 'PASS' && manualRouteOptions.length > 0"
+        v-if="meta.key === 'PASS' && manualRouteOptions.length > 0"
         :label="manualRouteMultiple ? '执行分支' : '下一步'"
         :prop="manualRouteMultiple ? 'routeTargetIds' : 'routeTargetId'"
       >
@@ -311,7 +297,7 @@ function beforeClose(done: () => void): void {
         </el-select>
       </el-form-item>
 
-      <div v-if="meta?.key === 'PASS' && subProcessApproverOptions.length > 0" class="sub-process-assignees">
+      <div v-if="meta.key === 'PASS' && subProcessApproverOptions.length > 0" class="sub-process-assignees">
         <div class="sub-process-assignees-title">
           下一节点为子流程「{{ subProcessName }}」启动后继续，请设置主流程审批与子流程审批
         </div>
@@ -333,7 +319,7 @@ function beforeClose(done: () => void): void {
         </div>
       </div>
 
-      <el-form-item v-for="field in meta?.fields ?? []" :key="field.key" :label="field.label" :prop="field.key">
+      <el-form-item v-for="field in meta.fields" :key="field.key" :label="field.label" :prop="field.key">
         <div class="approval-field">
           <div v-if="field.tip" class="approval-field-tip">{{ field.tip }}</div>
           <el-select
@@ -362,10 +348,9 @@ function beforeClose(done: () => void): void {
       </el-form-item>
     </el-form>
 
-    <template #footer>
-      <el-button :disabled="loading" @click="visible = false">取消</el-button>
+    <div class="approval-panel-footer">
       <el-button
-        v-for="submit in meta?.submits ?? []"
+        v-for="submit in meta.submits"
         :key="submit.label"
         type="primary"
         :loading="loading"
@@ -373,24 +358,45 @@ function beforeClose(done: () => void): void {
       >
         {{ submit.label }}
       </el-button>
-    </template>
-  </el-dialog>
+    </div>
+  </div>
 </template>
 
 <style scoped>
+.approval-panel {
+  padding: 14px 16px 16px;
+  margin-top: 12px;
+  background-color: #fafbfc;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+}
+
+.approval-panel-header {
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #ebeef5;
+}
+
+.approval-panel-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+  color: #303133;
+}
+
+.approval-panel-footer {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
 .approval-form :deep(.el-form-item) {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .approval-form :deep(.el-form-item:last-child) {
   margin-bottom: 0;
-}
-
-.approval-form :deep(.el-form-item__label) {
-  padding-bottom: 8px;
-  font-size: 14px;
-  line-height: 22px;
-  color: #303133;
 }
 
 .approval-field {
@@ -398,7 +404,7 @@ function beforeClose(done: () => void): void {
 }
 
 .pending-sign-tip {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   padding: 10px 12px;
   background-color: #fdf6ec;
   border: 1px solid #faecd8;
@@ -436,9 +442,9 @@ function beforeClose(done: () => void): void {
 }
 
 .sub-process-assignees {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   padding: 10px 12px;
-  background-color: #f7f9fc;
+  background-color: #ffffff;
   border-radius: 6px;
 }
 
@@ -472,9 +478,5 @@ function beforeClose(done: () => void): void {
 .approval-control :deep(.el-textarea__inner) {
   font-size: 14px;
   line-height: 22px;
-}
-
-:deep(.el-dialog__footer) {
-  padding-top: 8px;
 }
 </style>

@@ -1,5 +1,5 @@
 /**
- * 审批操作栏（运行态）配置：按钮皮肤、图标与各操作弹窗的表单字段。
+ * 审批操作栏（运行态）配置：按钮图标与各操作面板的表单字段。
  * 与 `types/workflow.ts` 的 ApprovalActionKey / ApprovalActionPayload 一一对应。
  */
 import type { Component } from 'vue'
@@ -24,7 +24,7 @@ export interface ActionOption {
   children?: ActionOption[]
 }
 
-/** 弹窗表单字段 */
+/** 面板表单字段 */
 export interface ActionField {
   /** 字段名，与 ApprovalActionPayload 中对应字段同名 */
   key: 'receiverId' | 'receiverIds' | 'targetNodeId' | 'comment'
@@ -39,7 +39,7 @@ export interface ActionField {
   tip?: string
 }
 
-/** 弹窗底部提交按钮；加签为「向前加签 / 向后加签」两个按钮 */
+/** 面板底部提交按钮；加签为「向前加签 / 向后加签」两个按钮 */
 export interface ActionSubmit {
   label: string
   direction?: AddSignDirection
@@ -50,10 +50,6 @@ export interface ActionMeta {
   key: ApprovalActionKey
   label: string
   icon: Component
-  /** plain=描边按钮（通过/拒绝/评论）；text=无边框文字按钮（其余） */
-  skin: 'plain' | 'text'
-  /** 描边按钮语义色 */
-  type?: 'success' | 'danger' | 'primary'
   fields: ActionField[]
   submits: ActionSubmit[]
 }
@@ -85,8 +81,6 @@ export const ACTION_META: Record<ApprovalActionKey, ActionMeta> = {
     key: 'PASS',
     label: '通过',
     icon: CircleCheck,
-    skin: 'plain',
-    type: 'success',
     fields: [APPROVE_COMMENT],
     submits: [{ label: '通过' }],
   },
@@ -94,8 +88,6 @@ export const ACTION_META: Record<ApprovalActionKey, ActionMeta> = {
     key: 'REJECT',
     label: '拒绝',
     icon: Close,
-    skin: 'plain',
-    type: 'danger',
     fields: [{ ...APPROVE_COMMENT, required: true }],
     submits: [{ label: '拒绝' }],
   },
@@ -103,8 +95,6 @@ export const ACTION_META: Record<ApprovalActionKey, ActionMeta> = {
     key: 'COMMENT',
     label: '评论',
     icon: ChatDotRound,
-    skin: 'plain',
-    type: 'primary',
     fields: [
       { key: 'comment', label: '评论内容', type: 'textarea', placeholder: '请输入评论内容', required: true },
     ],
@@ -114,7 +104,6 @@ export const ACTION_META: Record<ApprovalActionKey, ActionMeta> = {
     key: 'COPY',
     label: '抄送',
     icon: CopyDocument,
-    skin: 'text',
     fields: [
       {
         key: 'receiverIds',
@@ -132,7 +121,6 @@ export const ACTION_META: Record<ApprovalActionKey, ActionMeta> = {
     key: 'TRANSFER',
     label: '转办',
     icon: Share,
-    skin: 'text',
     fields: [
       { key: 'receiverId', label: '新审批人', type: 'select', placeholder: '请选择', required: true },
       { ...APPROVE_COMMENT, required: true },
@@ -143,7 +131,6 @@ export const ACTION_META: Record<ApprovalActionKey, ActionMeta> = {
     key: 'DELEGATE',
     label: '委派',
     icon: Promotion,
-    skin: 'text',
     fields: [
       { key: 'receiverId', label: '接收人', type: 'select', placeholder: '请选择', required: true },
       { ...APPROVE_COMMENT, required: true },
@@ -154,7 +141,6 @@ export const ACTION_META: Record<ApprovalActionKey, ActionMeta> = {
     key: 'ADD_SIGN',
     label: '加签',
     icon: Plus,
-    skin: 'text',
     fields: [
       { key: 'receiverId', label: '加签处理人', type: 'select', placeholder: '请选择', required: true },
       { ...APPROVE_COMMENT, required: true },
@@ -168,7 +154,6 @@ export const ACTION_META: Record<ApprovalActionKey, ActionMeta> = {
     key: 'RETURN',
     label: '退回',
     icon: Back,
-    skin: 'text',
     fields: [
       { key: 'targetNodeId', label: '退回节点', type: 'select', placeholder: '请选择', required: true },
       { key: 'comment', label: '退回理由', type: 'textarea', placeholder: '请输入退回理由', required: true },
@@ -179,7 +164,6 @@ export const ACTION_META: Record<ApprovalActionKey, ActionMeta> = {
     key: 'CANCEL',
     label: '取消',
     icon: RefreshLeft,
-    skin: 'text',
     fields: [
       {
         key: 'comment',

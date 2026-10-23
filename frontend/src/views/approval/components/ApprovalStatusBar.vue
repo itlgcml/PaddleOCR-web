@@ -10,7 +10,7 @@ import type { ManualRouteOptionVO, PendingSignTaskVO, SubProcessApproverOptionVO
 
 /**
  * 运行态操作栏：节点按钮快照 → ApprovalActionKey 列表（COMMENT/COPY 恒可用，与后端口径一致）；
- * ADD_SIGN_BEFORE/AFTER 合并为 ADD_SIGN（任一启用即可发起，方向在弹窗中选择）。
+ * ADD_SIGN_BEFORE/AFTER 合并为 ADD_SIGN（任一启用即可发起，方向在面板中选择）。
  * 撤销为实例级动作（仅发起人 + RUNNING），由父组件通过 emit('cancel') 处理。
  */
 const props = defineProps<{
@@ -98,8 +98,8 @@ const routeOptions = computed<(PrincipalOption & { children?: PrincipalOption[] 
 const barRef = ref<InstanceType<typeof ApprovalActionBar>>()
 
 defineExpose({
-  /** 提交成功后关闭内置动作弹窗 */
-  close: () => barRef.value?.close(),
+  /** 提交成功后重置操作面板（回默认操作并清空表单） */
+  reset: () => barRef.value?.reset(),
 })
 
 function onSubmit(payload: ApprovalActionPayload): void {
