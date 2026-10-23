@@ -61,8 +61,17 @@ public class InstanceDetailVO implements Serializable {
     @Schema(description = "表单快照 JSON（详情页业务表单渲染）")
     private String formSnapshotJson;
 
+    @Schema(description = "父实例 ID（当前实例为子流程实例时非空，前端据此渲染返回父实例入口）")
+    private String parentInstanceId;
+
+    @Schema(description = "子流程节点名（当前实例为子流程实例时非空，前端渲染「子流程」徽标）")
+    private String subProcessName;
+
     @Schema(description = "版本快照 WorkflowDoc JSON（前端复用 workflow 画布渲染流程图）")
     private String designJson;
+
+    @Schema(description = "本实例直接派生的子流程实例摘要（按创建时间升序）")
+    private List<SubInstanceSummaryVO> subInstances;
 
     @Schema(description = "审批记录时间线")
     private List<TaskRecordVO> records;

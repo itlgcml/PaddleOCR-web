@@ -9,6 +9,44 @@ export enum NodeType {
   /** 并行节点下的分支列 */
   PARALLEL_BRANCH = 'PARALLEL_BRANCH',
   TRANSACT = 'TRANSACT',
+  /** 子流程：内嵌一份完整的子流程设计（props.subDoc），运行态建子实例独立流转 */
+  SUB_PROCESS = 'SUB_PROCESS',
+}
+
+/** 子流程推进模式：WAIT=父流程等待子流程完成后继续；IMMEDIATE=子流程启动后父流程立即继续（旁路） */
+export type SubProcessAdvanceMode = 'WAIT' | 'IMMEDIATE'
+
+/** 子视图层级项：视图栈的一层（子流程节点 id + 名称，面包屑与钻入定位用） */
+export interface SubProcessTrailItem {
+  nodeId: string
+  name: string
+}
+
+/** 子流程最大嵌套层数（主流程为第 0 层；与后端 approval.sub-process.max-depth 对齐） */
+export const MAX_SUB_PROCESS_DEPTH = 3
+
+/** 节点默认名称 */
+export const DEFAULT_NODE_NAMES: Record<string, string> = {
+  [NodeType.START]: '发起人',
+  [NodeType.APPROVER]: '审批人',
+  [NodeType.CONDITIONS]: '条件分支',
+  [NodeType.CONDITION]: '条件',
+  [NodeType.PARALLEL]: '并行节点',
+  [NodeType.PARALLEL_BRANCH]: '并行分支',
+  [NodeType.TRANSACT]: '办理人',
+  [NodeType.SUB_PROCESS]: '子流程',
+}
+
+/** 推进模式文案（卡片徽标与属性抽屉单选共用） */
+export const SUB_PROCESS_ADVANCE_LABELS: Record<SubProcessAdvanceMode, string> = {
+  WAIT: '等待完成',
+  IMMEDIATE: '启动即继续',
+}
+
+/** 推进模式说明（属性抽屉单选副文案） */
+export const SUB_PROCESS_ADVANCE_HINTS: Record<SubProcessAdvanceMode, string> = {
+  WAIT: '父流程等待子流程全部完成后，再继续下一节点',
+  IMMEDIATE: '子流程启动后父流程立即继续下一节点，子流程旁路独立流转',
 }
 
 /** 审批人来源：指定（可同时圈定人员与角色）/ 主管 / 发起人自选 / 发起人本人 */
@@ -177,6 +215,14 @@ export interface ParallelBranchProps {
   groups: ConditionGroup[]
 }
 
+/** 子流程节点属性：内嵌子流程设计 + 推进模式 */
+export interface SubProcessProps {
+  /** 内嵌子流程设计文档（完整 WorkflowDoc，root 为发起人节点） */
+  subDoc: WorkflowDoc
+  /** 推进模式；旧草稿缺失时按 WAIT 处理 */
+  advanceMode: SubProcessAdvanceMode
+}
+
 /** 分支列移动动作：移到最左 / 左移一级 / 右移一级 / 移到最右 */
 export type BranchMoveAction = 'FIRST' | 'PREV' | 'NEXT' | 'LAST'
 
@@ -184,7 +230,14 @@ export type BranchMoveAction = 'FIRST' | 'PREV' | 'NEXT' | 'LAST'
  *  仅清空列内审批节点（人工路由 ≤2 列时不解散容器，分支列与选项配置保留） */
 export type BranchDeleteAction = 'COLUMN' | 'BRANCH' | 'PARALLEL' | 'CLEAR' | 'NONE'
 
-export type NodeProps = StartProps | ApproverProps | ConditionsProps | ConditionProps | ParallelBranchProps | Record<string, never>
+export type NodeProps =
+  | StartProps
+  | ApproverProps
+  | ConditionsProps
+  | ConditionProps
+  | ParallelBranchProps
+  | SubProcessProps
+  | Record<string, never>
 
 /** 流程节点（递归结构：主干 childNode 串联，分支 conditionNodes 横向展开） */
 export interface WorkflowNode {
@@ -207,6 +260,11 @@ export interface WorkflowDoc {
 export interface WorkflowError {
   nodeId: string
   message: string
+  /**
+   * 错误所在的子视图路径：主流程为空数组，子流程内错误按外层到内层记录各层子流程节点，
+   * 前端据此逐层钻入定位（nodeId 为子流程节点 id，name 为面包屑显示名）
+   */
+  path: SubProcessTrailItem[]
 }
 
 /** 节点默认属性工厂 */
@@ -233,9 +291,45 @@ export function createNodeProps(type: NodeType): NodeProps {
       return { groups: [], isDefault: false, priority: 0, label: '' }
     case NodeType.PARALLEL_BRANCH:
       return { groups: [] }
+    case NodeType.SUB_PROCESS:
+      return { subDoc: createSubDoc(), advanceMode: 'WAIT' }
     default:
       return {}
   }
+}
+
+/** 节点 ID 生成：优先 crypto.randomUUID，不可用环境回退时间戳 + 随机串 */
+export function createNodeId(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `wf-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+/** 子流程内嵌设计文档工厂：与主流程同构（root 为发起人节点，主干链为空） */
+export function createSubDoc(name = '子流程'): WorkflowDoc {
+  return {
+    name,
+    updatedAt: Date.now(),
+    root: {
+      id: createNodeId(),
+      name: DEFAULT_NODE_NAMES[NodeType.START],
+      type: NodeType.START,
+      props: createNodeProps(NodeType.START),
+      childNode: null,
+    },
+  }
+}
+
+/** 统计节点数（含自身、主链后继与全部分支列子树）：子流程卡片「内部 N 个节点」概要用 */
+export function countNodes(node: WorkflowNode | null): number {
+  if (!node) {
+    return 0
+  }
+  let total = 1
+  for (const branch of node.conditionNodes ?? []) {
+    total += countNodes(branch)
+  }
+  return total + countNodes(node.childNode)
 }
 
 /** 是否为分支容器（条件分支 / 并行节点）：两者都以 conditionNodes 横向展开多列 */

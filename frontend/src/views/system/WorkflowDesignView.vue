@@ -9,7 +9,8 @@ import WorkflowCanvas from '@/components/workflow/WorkflowCanvas.vue'
 import NodePropDrawer from '@/components/workflow/NodePropDrawer.vue'
 
 const store = useWorkflowStore()
-const { doc, zoom, activeNodeId, activeNode } = storeToRefs(store)
+// doc 为完整主文档（保存/导出/校验均针对它）；currentRoot 为当前视图渲染根（主流程或钻入的子流程）
+const { doc, zoom, activeNodeId, activeNode, currentRoot, designCrumbs } = storeToRefs(store)
 const { errors } = useWorkflowValidate(doc)
 
 const drawerVisible = ref(false)
@@ -123,7 +124,23 @@ function onValidate(): void {
     return
   }
   ElMessage.error(`校验发现 ${errors.value.length} 个问题：${errors.value[0].message}`)
-  store.setActive(errors.value[0].nodeId)
+  // 按错误项的子视图路径逐层钻入后选中出错节点（子流程内的错误也能直接定位）
+  store.focusError(errors.value[0])
+}
+
+/** 钻入子流程内嵌设计：切换到子视图并收起属性抽屉 */
+function onDrill(node: WorkflowNode): void {
+  if (!store.enterSubProcess(node.id)) {
+    ElMessage.warning('该子流程的设计缺失，无法进入')
+    return
+  }
+  drawerVisible.value = false
+}
+
+/** 面包屑跳转：返回指定视图层（0=主流程） */
+function onNavigate(level: number): void {
+  store.exitToLevel(level)
+  drawerVisible.value = false
 }
 
 function onImport(text: string): void {
@@ -162,10 +179,12 @@ async function onReset(): Promise<void> {
     <WorkflowToolbar
       v-model:zoom="zoom"
       v-model:fullscreen="fullscreen"
+      :crumbs="designCrumbs"
       @validate="onValidate"
       @import="onImport"
       @export="onExport"
       @reset="onReset"
+      @navigate="onNavigate"
     >
       <!-- 工具栏右侧扩展位透传：由使用方（如流程配置向导）注入版本视图切换器，未注入时该插槽为空 -->
       <template #version>
@@ -175,7 +194,7 @@ async function onReset(): Promise<void> {
 
     <div class="wf-designer-main">
       <WorkflowCanvas
-        :root="doc.root"
+        :root="currentRoot"
         :zoom="zoom"
         :active-id="activeNodeId"
         @open="onOpen"
@@ -185,6 +204,7 @@ async function onReset(): Promise<void> {
         @add-branch="onAddBranch"
         @del-branch="onDelBranch"
         @move-branch="onMoveBranch"
+        @drill="onDrill"
       />
     </div>
 

@@ -68,3 +68,5 @@ approval:
   process:
     design-max-length: 524288      # 流程设计 JSON 长度上限（默认 512KB），防超大负载拖垮接口
     lock-lease-seconds: 3          # 防重复提交锁持有时长（秒），兜底自动释放防死锁
+  sub-process:
+    max-depth: 3                   # 子流程最大嵌套层数（主流程为第 0 层；发布校验与前端常量对齐）

@@ -17,14 +17,21 @@ const MENU: { type: NodeType; label: string; color: string }[] = [
   { type: NodeType.APPROVER, label: '审批人', color: '#FF9438' },
   { type: NodeType.CONDITIONS, label: '条件分支', color: '#8A94E6' },
   { type: NodeType.PARALLEL, label: '并行节点', color: '#7C6BFF' },
+  { type: NodeType.SUB_PROCESS, label: '子流程', color: '#13C2C2' },
 ]
 
-/** 分支列之下必须先接普通节点，故不提供分支类选项；分支容器汇合后可继续接分支容器 */
-const menuItems = computed(() => (
-  isBranchColumn(props.parentType)
-    ? MENU.filter((item) => item.type === NodeType.APPROVER)
-    : MENU
-))
+/**
+ * 分支列之下必须先接普通节点，故不提供分支类选项；分支容器汇合后可继续接分支容器。
+ * 子流程仅可摆在主干链（分支列内已被上述规则排除），且当前视图层深达上限时隐藏入口。
+ */
+const menuItems = computed(() => {
+  if (isBranchColumn(props.parentType)) {
+    return MENU.filter((item) => item.type === NodeType.APPROVER)
+  }
+  return store.canAddSubProcess
+    ? MENU
+    : MENU.filter((item) => item.type !== NodeType.SUB_PROCESS)
+})
 
 function toggle(): void {
   if (visible.value) {

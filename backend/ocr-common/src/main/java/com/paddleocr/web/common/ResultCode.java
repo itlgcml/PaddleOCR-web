@@ -118,6 +118,16 @@ public enum ResultCode {
     /** 减签目标任务不合法（非当前任务直接派生的 PENDING 加签任务，或已办理） */
     TASK_REDUCE_SIGN_INVALID(40064, "减签目标任务不合法或不可删除"),
 
+    // ---- 子流程（SUB_PROCESS） ----
+    /** 子流程设计不合法（subDoc 缺失/根非 START/递归校验未通过/advanceMode 非法） */
+    SUB_PROCESS_DESIGN_INVALID(40065, "子流程设计不合法"),
+    /** 子流程嵌套层数超限（> approval.sub-process.max-depth，默认 3） */
+    SUB_PROCESS_DEPTH_EXCEEDED(40066, "子流程嵌套层数超限"),
+    /** 子流程节点不能放在分支列内（CONDITIONS/PARALLEL 的 conditionNodes） */
+    SUB_PROCESS_PLACEMENT_INVALID(40067, "子流程节点不能放在分支列内"),
+    /** 子流程实例不支持该操作（如直接撤销，撤销须从根实例发起） */
+    SUB_INSTANCE_OPERATION_FORBIDDEN(40068, "子流程实例不支持该操作"),
+
     // ---- 律所选聘域 ----
     /** 律所选聘记录不存在（查无 / 已删） */
     LAW_FIRM_SELECT_NOT_FOUND(40050, "律所选聘记录不存在"),

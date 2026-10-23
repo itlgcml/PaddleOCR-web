@@ -185,10 +185,12 @@ public class FlowInstanceServiceImpl implements FlowInstanceService {
         if (snapshot == null) {
             throw new BusinessException(ResultCode.INSTANCE_BIZ_NOT_FOUND);
         }
+        // 根实例口径（§4.4.5）：子实例 RUNNING 不阻塞单据重新发起（父树必已非 RUNNING 才可能重新发起）
         Long running = flowInstanceMapper.selectCount(new LambdaQueryWrapper<FlowInstanceDO>()
                 .eq(FlowInstanceDO::getBizType, dto.getBizType())
                 .eq(FlowInstanceDO::getBizId, bizId)
-                .eq(FlowInstanceDO::getStatus, InstanceStatus.RUNNING));
+                .eq(FlowInstanceDO::getStatus, InstanceStatus.RUNNING)
+                .isNull(FlowInstanceDO::getParentInstanceId));
         if (running != null && running > 0) {
             throw new BusinessException(ResultCode.INSTANCE_ALREADY_RUNNING);
         }
@@ -238,6 +240,8 @@ public class FlowInstanceServiceImpl implements FlowInstanceService {
         Page<FlowInstanceDO> page = flowInstanceMapper.selectPage(new Page<>(pageNum, pageSize),
                 new LambdaQueryWrapper<FlowInstanceDO>()
                         .eq(FlowInstanceDO::getStartUserId, userId)
+                        // 仅列根实例：子流程实例归并于父实例详情，不单列
+                        .isNull(FlowInstanceDO::getParentInstanceId)
                         .eq(hasStatus, FlowInstanceDO::getStatus,
                                 hasStatus ? query.getStatus().trim() : null)
                         .in(keywordInstanceIds != null, FlowInstanceDO::getId, keywordInstanceIds)
@@ -284,6 +288,10 @@ public class FlowInstanceServiceImpl implements FlowInstanceService {
         FlowInstanceDO instance = support.requireInstance(instanceId);
         if (!userId.equals(instance.getStartUserId())) {
             throw new BusinessException(ResultCode.INSTANCE_VIEW_FORBIDDEN, "仅发起人可撤销实例");
+        }
+        if (instance.getParentInstanceId() != null) {
+            // 子流程实例不支持独立撤销：须从根实例发起整树级联，避免"撤孩子留父亲"的半终止状态（§8）
+            throw new BusinessException(ResultCode.SUB_INSTANCE_OPERATION_FORBIDDEN);
         }
         if (!InstanceStatus.RUNNING.equals(instance.getStatus())) {
             throw new BusinessException(ResultCode.INSTANCE_STATUS_ILLEGAL);
@@ -346,10 +354,12 @@ public class FlowInstanceServiceImpl implements FlowInstanceService {
         if (distinctIds.size() > MAX_BIZ_IDS) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "bizIds 不能超过 " + MAX_BIZ_IDS + " 个");
         }
+        // 单据审批状态只统计根实例：子实例状态不外露为单据状态（§9）
         List<FlowInstanceDO> instances = flowInstanceMapper.selectList(
                 new LambdaQueryWrapper<FlowInstanceDO>()
                         .eq(FlowInstanceDO::getBizType, bizType)
                         .in(FlowInstanceDO::getBizId, distinctIds)
+                        .isNull(FlowInstanceDO::getParentInstanceId)
                         .orderByDesc(FlowInstanceDO::getCreateTime));
         Map<Long, FlowInstanceDO> latest = new LinkedHashMap<>();
         for (FlowInstanceDO instance : instances) {

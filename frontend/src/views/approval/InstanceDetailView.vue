@@ -139,6 +139,18 @@ function goBack(): void {
     void router.push('/approval/todo')
   }
 }
+
+/** 跳转到指定实例详情（子流程实例 / 父流程实例共用） */
+function goInstance(id: string): void {
+  void router.push({ name: 'ApprovalInstanceDetail', params: { instanceId: id } })
+}
+
+/** 返回父流程实例详情 */
+function goParent(): void {
+  if (detail.value?.parentInstanceId) {
+    goInstance(detail.value.parentInstanceId)
+  }
+}
 </script>
 
 <template>
@@ -151,6 +163,7 @@ function goBack(): void {
       <template v-if="detail">
         <div class="header-main">
           <span class="header-title">{{ detail.bizTitle }}</span>
+          <el-tag v-if="detail.subProcessName" type="info" effect="plain">子流程</el-tag>
           <el-tag :type="statusMeta(detail.status).type" effect="light">
             {{ statusMeta(detail.status).label }}
           </el-tag>
@@ -161,6 +174,15 @@ function goBack(): void {
           <span>发起时间：{{ detail.startTime }}</span>
           <span v-if="detail.finishTime">结束时间：{{ detail.finishTime }}</span>
         </div>
+        <el-link
+          v-if="detail.parentInstanceId"
+          class="header-parent-link"
+          type="primary"
+          :underline="false"
+          @click="goParent"
+        >
+          返回父流程
+        </el-link>
       </template>
     </div>
 
@@ -205,6 +227,23 @@ function goBack(): void {
           </el-card>
         </div>
         <div class="grid-side">
+          <el-card v-if="detail.subInstances?.length" shadow="never" class="detail-card">
+            <template #header><span class="card-title">子流程实例</span></template>
+            <div class="sub-instance-list">
+              <div
+                v-for="sub in detail.subInstances"
+                :key="sub.id"
+                class="sub-instance-item"
+                @click="goInstance(sub.id)"
+              >
+                <span class="sub-instance-name">{{ sub.name }}</span>
+                <el-tag v-if="sub.advanceMode === 'IMMEDIATE'" size="small" effect="plain">旁路</el-tag>
+                <el-tag :type="statusMeta(sub.status).type" size="small" effect="light">
+                  {{ statusMeta(sub.status).label }}
+                </el-tag>
+              </div>
+            </div>
+          </el-card>
           <el-card shadow="never" class="detail-card">
             <template #header><span class="card-title">审批记录</span></template>
             <InstanceTimeline :records="detail.records" />
@@ -253,6 +292,38 @@ function goBack(): void {
   font-size: 13px;
   line-height: 22px;
   color: #909399;
+}
+
+.header-parent-link {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.sub-instance-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sub-instance-item {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  cursor: pointer;
+  background-color: #f5f7fa;
+  border-radius: 4px;
+}
+
+.sub-instance-item:hover {
+  background-color: #ecf5ff;
+}
+
+.sub-instance-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .task-info-card {

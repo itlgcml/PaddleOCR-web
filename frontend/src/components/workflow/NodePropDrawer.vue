@@ -6,6 +6,8 @@ import {
   createApproverButtons,
   NodeType,
   normalizeApproverButtons,
+  SUB_PROCESS_ADVANCE_HINTS,
+  SUB_PROCESS_ADVANCE_LABELS,
   type ApproverButtonKey,
   type ApproverProps,
   type ConditionGroup,
@@ -14,6 +16,8 @@ import {
   type ConditionsProps,
   type ParallelBranchProps,
   type StartProps,
+  type SubProcessAdvanceMode,
+  type SubProcessProps,
   type WorkflowNode,
 } from '@/types/workflow'
 import { deepClone } from '@/utils/clone'
@@ -49,7 +53,17 @@ const TITLE_MAP: Record<string, string> = {
   [NodeType.CONDITION]: '条件规则',
   [NodeType.PARALLEL]: '并行分支',
   [NodeType.PARALLEL_BRANCH]: '并行分支',
+  [NodeType.SUB_PROCESS]: '子流程',
 }
+
+/** 子流程推进模式选项：等待完成（默认）/ 启动即继续 */
+const ADVANCE_OPTIONS: { value: SubProcessAdvanceMode; label: string }[] = [
+  { value: 'WAIT', label: SUB_PROCESS_ADVANCE_LABELS.WAIT },
+  { value: 'IMMEDIATE', label: SUB_PROCESS_ADVANCE_LABELS.IMMEDIATE },
+]
+
+/** 当前是否处于子流程内嵌设计视图（子设计的发起人节点：发起范围沿用父流程，不可配置） */
+const isSubDocStart = computed(() => store.subProcessDepth > 0 && props.node?.type === NodeType.START)
 
 /** 编辑态：名称 + 属性临时副本（保存时一次性提交） */
 const draftName = ref('')
@@ -57,6 +71,8 @@ const draftStart = ref<StartProps>({ rangeType: 'ALL', memberIds: [], roleIds: [
 const draftApprover = ref<ApproverProps>({ source: 'MEMBER', memberIds: [], roleIds: [], leaderLevel: 1, multiMode: 'OR', emptyPolicy: 'AUTO_PASS', canRejectToStart: false, rejectTargetId: '', buttons: createApproverButtons() })
 const draftCondition = ref<ConditionProps>({ groups: [], isDefault: false, priority: 0, label: '' })
 const draftConditions = ref<ConditionsProps>({ routing: 'AUTO' })
+/** 子流程草稿只编辑推进模式：内嵌设计（subDoc）在子视图内直接编辑，保存时原样保留 */
+const draftSubProcess = ref<{ advanceMode: SubProcessAdvanceMode }>({ advanceMode: 'WAIT' })
 
 /** 审批人抽屉的页签：节点设置 / 按钮设置 */
 const approverTab = ref<'NODE' | 'BUTTON'>('NODE')
@@ -113,6 +129,10 @@ watch(
       case NodeType.PARALLEL_BRANCH:
         draftCondition.value = { groups: (raw as ParallelBranchProps).groups ?? [], isDefault: false, priority: 0, label: '' }
         break
+      case NodeType.SUB_PROCESS:
+        // 旧草稿可能缺 advanceMode，读取时补齐为 WAIT
+        draftSubProcess.value = { advanceMode: (raw as SubProcessProps).advanceMode ?? 'WAIT' }
+        break
       default:
         break
     }
@@ -142,6 +162,15 @@ function handleSave(): void {
     case NodeType.PARALLEL_BRANCH:
       emit('save', props.node.id, { groups: deepClone(draftCondition.value.groups) }, draftName.value)
       break
+    case NodeType.SUB_PROCESS: {
+      // 内嵌设计（subDoc）在子视图内直接编辑落库，此处原样保留，仅提交推进模式
+      const current = props.node.props as SubProcessProps
+      emit('save', props.node.id, {
+        subDoc: current.subDoc,
+        advanceMode: draftSubProcess.value.advanceMode,
+      }, draftName.value)
+      break
+    }
     default:
       emit('save', props.node.id, deepClone(props.node.props), draftName.value)
   }
@@ -240,26 +269,36 @@ const EMPTY_POLICY_OPTIONS = [
 
         <!-- 发起人：与「基本信息」步骤的发起范围控件保持一致，但只读 -->
         <template v-if="node.type === NodeType.START">
-          <el-form-item label="谁可以发起">
-            <el-radio-group v-model="draftStart.rangeType" disabled>
-              <el-radio value="ALL">全体</el-radio>
-              <el-radio value="SPECIFIC">指定</el-radio>
-            </el-radio-group>
-          </el-form-item>
-          <template v-if="draftStart.rangeType === 'SPECIFIC'">
-            <el-form-item label="指定人员">
-              <PrincipalSelect v-model="draftStart.memberIds" type="USER" disabled placeholder="未选择人员" />
-            </el-form-item>
-            <el-form-item label="指定角色">
-              <PrincipalSelect v-model="draftStart.roleIds" type="ROLE" disabled placeholder="未选择角色" />
-            </el-form-item>
-          </template>
+          <!-- 子流程内嵌设计的发起人：发起人与发起范围沿用父流程实例，无需在此配置 -->
           <el-alert
+            v-if="isSubDocStart"
             type="info"
             :closable="false"
             show-icon
-            title="发起人范围由「基本信息」步骤配置，此处不可修改"
+            title="子流程沿用父流程的发起人与发起范围，此处不可配置"
           />
+          <template v-else>
+            <el-form-item label="谁可以发起">
+              <el-radio-group v-model="draftStart.rangeType" disabled>
+                <el-radio value="ALL">全体</el-radio>
+                <el-radio value="SPECIFIC">指定</el-radio>
+              </el-radio-group>
+            </el-form-item>
+            <template v-if="draftStart.rangeType === 'SPECIFIC'">
+              <el-form-item label="指定人员">
+                <PrincipalSelect v-model="draftStart.memberIds" type="USER" disabled placeholder="未选择人员" />
+              </el-form-item>
+              <el-form-item label="指定角色">
+                <PrincipalSelect v-model="draftStart.roleIds" type="ROLE" disabled placeholder="未选择角色" />
+              </el-form-item>
+            </template>
+            <el-alert
+              type="info"
+              :closable="false"
+              show-icon
+              title="发起人范围由「基本信息」步骤配置，此处不可修改"
+            />
+          </template>
         </template>
 
         <!-- 审批人 -->
@@ -318,6 +357,29 @@ const EMPTY_POLICY_OPTIONS = [
             :title="node.type === NodeType.PARALLEL
               ? '自动并行：全部分支同时执行，全部完成后汇合继续'
               : '自动路由：按各分支列配置的条件规则自动匹配下一步'"
+          />
+        </template>
+
+        <!-- 子流程：推进方式（等待完成 / 启动即继续），内部设计在子视图中编辑 -->
+        <template v-else-if="node.type === NodeType.SUB_PROCESS">
+          <el-form-item label="推进方式">
+            <el-radio-group v-model="draftSubProcess.advanceMode">
+              <el-radio v-for="opt in ADVANCE_OPTIONS" :key="opt.value" :value="opt.value">
+                {{ opt.label }}
+              </el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-alert
+            type="info"
+            :closable="false"
+            show-icon
+            :title="SUB_PROCESS_ADVANCE_HINTS[draftSubProcess.advanceMode]"
+          />
+          <el-alert
+            type="info"
+            :closable="false"
+            show-icon
+            title="点击卡片右侧箭头进入子流程内部设计；子流程内可继续添加节点与嵌套子流程（层数受上限约束）"
           />
         </template>
 

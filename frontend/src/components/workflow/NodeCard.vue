@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Avatar, Close, CopyDocument, EditPen, Share, User } from '@element-plus/icons-vue'
+import { ArrowRight, Avatar, Close, Connection, CopyDocument, EditPen, Share, User } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
-import { NodeType, type ConditionLogic, type ConditionProps, type ConditionsProps, type WorkflowNode } from '@/types/workflow'
+import { countNodes, NodeType, SUB_PROCESS_ADVANCE_LABELS, type ConditionLogic, type ConditionProps, type ConditionsProps, type SubProcessAdvanceMode, type SubProcessProps, type WorkflowNode } from '@/types/workflow'
 import { useWorkflowStore } from '@/stores/workflow'
 import { principalLabel } from '@/composables/usePrincipalOptions'
 
@@ -12,6 +12,8 @@ const emit = defineEmits<{
   (e: 'open', node: WorkflowNode): void
   (e: 'copy', id: string): void
   (e: 'remove', id: string): void
+  /** 钻入子流程内嵌设计（仅子流程卡片触发） */
+  (e: 'drill', node: WorkflowNode): void
 }>()
 
 const store = useWorkflowStore()
@@ -22,9 +24,19 @@ const META: Record<string, { icon: Component; color: string }> = {
   [NodeType.CONDITION]: { icon: Share, color: '#8A94E6' },
   [NodeType.CONDITIONS]: { icon: Share, color: '#8A94E6' },
   [NodeType.TRANSACT]: { icon: EditPen, color: '#6C7CFF' },
+  [NodeType.SUB_PROCESS]: { icon: Connection, color: '#13C2C2' },
 }
 
 const meta = computed(() => META[props.node.type] ?? META[NodeType.APPROVER])
+
+/** 子流程推进模式徽标文案（等待完成 / 启动即继续）；非子流程为空 */
+const subProcessTag = computed<string>(() => {
+  if (props.node.type !== NodeType.SUB_PROCESS) {
+    return ''
+  }
+  const mode: SubProcessAdvanceMode = (props.node.props as SubProcessProps).advanceMode ?? 'WAIT'
+  return SUB_PROCESS_ADVANCE_LABELS[mode]
+})
 
 const description = computed<string>(() => {
   const p = props.node.props
@@ -76,6 +88,11 @@ const description = computed<string>(() => {
       const cond = p as ConditionProps
       return summarizeCondition(cond) || '满足条件时并行执行'
     }
+    case NodeType.SUB_PROCESS: {
+      // 内部节点数不含子流程发起人节点（发起人恒为子设计根节点）
+      const count = countNodes((p as SubProcessProps).subDoc?.root?.childNode ?? null)
+      return count > 0 ? `内部 ${count} 个节点` : '内部暂无节点，点击箭头进入设计'
+    }
     default:
       return ''
   }
@@ -120,6 +137,11 @@ function operatorLabel(op: string): string {
         <el-icon :size="16"><component :is="meta.icon" /></el-icon>
       </span>
       <span class="wf-card-title">{{ node.name }}</span>
+      <span v-if="subProcessTag" class="wf-card-tag">{{ subProcessTag }}</span>
+      <!-- 子流程：常显的钻入入口（进入内嵌设计视图） -->
+      <span v-if="node.type === NodeType.SUB_PROCESS" class="wf-card-drill">
+        <el-icon title="进入子流程设计" @click.stop="emit('drill', node)"><ArrowRight /></el-icon>
+      </span>
       <span v-if="node.type !== NodeType.START" class="wf-card-actions">
         <el-icon title="复制" @click.stop="emit('copy', node.id)"><CopyDocument /></el-icon>
         <el-icon title="删除" @click.stop="emit('remove', node.id)"><Close /></el-icon>
@@ -192,6 +214,27 @@ function operatorLabel(op: string): string {
 }
 
 .wf-card-actions .el-icon:hover {
+  color: #409eff;
+}
+
+.wf-card-tag {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  font-size: 12px;
+  line-height: 16px;
+  color: #13c2c2;
+  background: #e6fffb;
+  border-radius: 9px;
+}
+
+.wf-card-drill {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 6px;
+  color: #13c2c2;
+}
+
+.wf-card-drill .el-icon:hover {
   color: #409eff;
 }
 

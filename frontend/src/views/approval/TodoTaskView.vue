@@ -79,7 +79,12 @@ const SIGN_LABELS: Record<string, string> = {
     </div>
 
     <el-table v-loading="loading" :data="records" border>
-      <el-table-column prop="processName" label="流程名称" min-width="140" show-overflow-tooltip />
+      <el-table-column label="流程名称" min-width="160">
+        <template #default="{ row }">
+          <span class="process-cell">{{ row.processName }}</span>
+          <el-tag v-if="row.subProcessName" size="small" type="info" effect="plain">子流程</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="bizTitle" label="业务标题" min-width="180" show-overflow-tooltip />
       <el-table-column prop="nodeName" label="当前节点" min-width="120" show-overflow-tooltip />
       <el-table-column prop="startUserName" label="发起人" width="110" />
@@ -130,5 +135,14 @@ const SIGN_LABELS: Record<string, string> = {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+.process-cell {
+  display: inline-block;
+  max-width: 160px;
+  margin-right: 4px;
+  overflow: hidden;
+  vertical-align: middle;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

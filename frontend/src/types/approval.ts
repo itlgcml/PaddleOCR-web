@@ -105,6 +105,8 @@ export interface TaskVO {
   bizId: string
   bizTitle: string
   nodeName: string
+  /** 子流程节点名（任务所属实例为子流程实例时非空，前端渲染「子流程」徽标） */
+  subProcessName: string | null
   /** 多实例模式：OR=或签 AND=会签 */
   multiMode: 'OR' | 'AND'
   signType: TaskSignType
@@ -166,6 +168,26 @@ export interface InstanceDetailVO {
   myPendingTaskId: string | null
   /** 当前用户是否可撤销（=发起人 且 RUNNING） */
   canCancel: boolean
+  /** 父实例 ID（当前实例为子流程实例时非空，前端渲染返回父流程入口） */
+  parentInstanceId: string | null
+  /** 子流程节点名（当前实例为子流程实例时非空，前端渲染「子流程」徽标） */
+  subProcessName: string | null
+  /** 本实例直接派生的子流程实例摘要（按创建时间升序） */
+  subInstances: SubInstanceSummaryVO[]
+}
+
+/** 子流程实例摘要（SubInstanceSummaryVO 镜像，父实例详情的子流程卡片） */
+export interface SubInstanceSummaryVO {
+  id: string
+  /** 子实例流程名（父流程名·子流程节点名） */
+  name: string
+  /** 子流程节点名 */
+  subProcessName: string
+  /** 推进模式：WAIT=等待完成 IMMEDIATE=启动即继续（旁路） */
+  advanceMode: 'WAIT' | 'IMMEDIATE'
+  status: InstanceStatus
+  createTime: string
+  finishTime: string | null
 }
 
 /** 可退回目标节点（ReturnTargetVO 镜像，START=退回发起人重新提交） */

@@ -106,10 +106,11 @@ public class FlowTaskServiceImpl implements FlowTaskService {
         TaskDetailVO vo = new TaskDetailVO();
         BeanUtils.copyProperties(base, vo);
         FlowInstanceDO instance = flowInstanceMapper.selectById(task.getInstanceId());
-        vo.setTask(toTaskVO(task, instance));
+        vo.setTask(toTaskVO(task, instance, new HashMap<>(2)));
 
+        // 设计快照按实例口径（§4.4.6）：子实例读自身冗余 subDoc，根实例读版本表
         FlowDesignCursor cursor = support.parseCursorQuietly(
-                instance == null ? null : support.loadVersionDesignJson(instance.getProcessVersionId()));
+                instance == null ? null : support.loadDesign(instance));
         vo.setButtons(Collections.emptyList());
         vo.setReturnTargets(Collections.emptyList());
         vo.setManualRouteOptions(Collections.emptyList());
@@ -157,8 +158,9 @@ public class FlowTaskServiceImpl implements FlowTaskService {
     private PageResultVO<TaskVO> toTaskPage(Page<FlowTaskDO> page) {
         List<FlowTaskDO> records = page.getRecords();
         Map<Long, FlowInstanceDO> instanceMap = loadInstances(records);
+        Map<Long, String> subProcessNameCache = new HashMap<>(2);
         List<TaskVO> vos = records.stream()
-                .map(task -> toTaskVO(task, instanceMap.get(task.getInstanceId())))
+                .map(task -> toTaskVO(task, instanceMap.get(task.getInstanceId()), subProcessNameCache))
                 .collect(Collectors.toList());
         PageResultVO<TaskVO> result = new PageResultVO<>();
         result.setRecords(vos);
@@ -197,7 +199,7 @@ public class FlowTaskServiceImpl implements FlowTaskService {
                 .collect(Collectors.toMap(FlowInstanceDO::getId, instance -> instance, (a, b) -> a));
     }
 
-    private TaskVO toTaskVO(FlowTaskDO task, FlowInstanceDO instance) {
+    private TaskVO toTaskVO(FlowTaskDO task, FlowInstanceDO instance, Map<Long, String> subProcessNameCache) {
         TaskVO vo = new TaskVO();
         vo.setId(String.valueOf(task.getId()));
         vo.setInstanceId(String.valueOf(task.getInstanceId()));
@@ -211,12 +213,32 @@ public class FlowTaskServiceImpl implements FlowTaskService {
         vo.setComment(task.getComment());
         if (instance != null) {
             vo.setProcessName(instance.getProcessName());
+            vo.setSubProcessName(resolveSubProcessName(instance, subProcessNameCache));
             vo.setBizType(instance.getBizType());
             vo.setBizId(String.valueOf(instance.getBizId()));
             vo.setBizTitle(instance.getBizTitle());
             vo.setStartUserName(instance.getStartUserName());
         }
         return vo;
+    }
+
+    /**
+     * 子流程节点名（任务所属实例为子流程实例时非空，前端渲染「子流程」徽标）：
+     * 从父实例设计快照定位 parentNodeId 节点；按父实例 ID 缓存，避免列表场景重复解析同一父实例
+     */
+    private String resolveSubProcessName(FlowInstanceDO instance, Map<Long, String> cache) {
+        Long parentId = instance.getParentInstanceId();
+        if (parentId == null || instance.getParentNodeId() == null) {
+            return null;
+        }
+        if (!cache.containsKey(parentId)) {
+            FlowInstanceDO parent = flowInstanceMapper.selectById(parentId);
+            FlowDesignCursor cursor = parent == null
+                    ? null : support.parseCursorQuietly(support.loadDesign(parent));
+            JsonNode node = cursor == null ? null : cursor.findNode(instance.getParentNodeId());
+            cache.put(parentId, node == null ? null : nameOf(node));
+        }
+        return cache.get(parentId);
     }
 
     /**

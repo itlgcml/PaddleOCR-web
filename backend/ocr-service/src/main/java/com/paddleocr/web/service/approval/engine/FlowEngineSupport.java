@@ -1,6 +1,7 @@
 package com.paddleocr.web.service.approval.engine;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.paddleocr.web.common.BusinessException;
@@ -77,14 +78,23 @@ public class FlowEngineSupport {
     // ==================== 上下文装配 ====================
 
     /**
-     * 装配推进上下文：designJson 为空时按实例冻结的 processVersionId 加载版本快照
+     * 装配推进上下文：设计快照按 loadDesign 统一口径加载（子实例读自身冗余列，根实例读版本表）
      */
     public EngineCtx loadCtx(FlowInstanceDO instance, String designJson) {
-        if (designJson == null) {
-            ProcessVersionDO version = flowProcessVersion(instance.getProcessVersionId());
-            designJson = version.getDesignJson();
+        String design = designJson != null && !designJson.isEmpty() ? designJson : loadDesign(instance);
+        return new EngineCtx(instance, parseCursor(design), parseFormValues(instance.getFormSnapshot()));
+    }
+
+    /**
+     * 实例设计快照统一口径（§4.4.6）：子实例读自身 design_json（subDoc 冻结副本），
+     * 根实例（designJson 为空）读冻结版本的 design_json
+     */
+    public String loadDesign(FlowInstanceDO instance) {
+        String designJson = instance.getDesignJson();
+        if (designJson != null && !designJson.isEmpty()) {
+            return designJson;
         }
-        return new EngineCtx(instance, parseCursor(designJson), parseFormValues(instance.getFormSnapshot()));
+        return flowProcessVersion(instance.getProcessVersionId()).getDesignJson();
     }
 
     private ProcessVersionDO flowProcessVersion(Long versionId) {
@@ -107,6 +117,17 @@ public class FlowEngineSupport {
     }
 
     /**
+     * 节点子树序列化（子实例 design_json 落库：SUB_PROCESS 节点 props.subDoc 冻结副本）
+     */
+    public String writeJson(JsonNode node) {
+        try {
+            return objectMapper.writeValueAsString(node);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("流程设计快照序列化失败", e);
+        }
+    }
+
+    /**
      * 快照解析（展示降级口径）：空/解析失败返回 null，不影响详情其余部分展示
      */
     public FlowDesignCursor parseCursorQuietly(String designJson) {
@@ -118,14 +139,6 @@ public class FlowEngineSupport {
         } catch (Exception e) {
             return null;
         }
-    }
-
-    /**
-     * 版本快照 design_json 原文（详情/办理视图画布渲染用）；版本缺失返回 null
-     */
-    public String loadVersionDesignJson(Long versionId) {
-        ProcessVersionDO version = processVersionMapper.selectById(versionId);
-        return version == null ? null : version.getDesignJson();
     }
 
     /**
@@ -277,6 +290,19 @@ public class FlowEngineSupport {
     }
 
     /**
+     * 回填实例的流程树身份（根实例 rootInstanceId=自身 + depth=0，插入后 id 已知方可回写）
+     */
+    public void markRootInstance(FlowInstanceDO instance) {
+        FlowInstanceDO update = new FlowInstanceDO();
+        update.setId(instance.getId());
+        update.setRootInstanceId(instance.getId());
+        update.setDepth(0);
+        flowInstanceMapper.updateById(update);
+        instance.setRootInstanceId(instance.getId());
+        instance.setDepth(0);
+    }
+
+    /**
      * 实例全部 PENDING 任务（撤销级联用）
      */
     public List<FlowTaskDO> loadPendingTasks(Long instanceId) {
@@ -404,15 +430,45 @@ public class FlowEngineSupport {
     }
 
     /**
-     * 实例是否存在 RUNNING 前置实例之外的状态更新并写终态（COMPLETED/REJECTED/CANCELED）
+     * 实例终态更新（COMPLETED/REJECTED/CANCELED）：写库并同步上下文内的实例状态
      */
     public void finishInstance(EngineCtx ctx, String status) {
+        finishInstance(ctx.getInstance(), status);
+    }
+
+    /**
+     * 实例终态更新（行级口径，级联终止等无上下文场景使用）
+     */
+    public void finishInstance(FlowInstanceDO instance, String status) {
         FlowInstanceDO update = new FlowInstanceDO();
-        update.setId(ctx.getInstance().getId());
+        update.setId(instance.getId());
         update.setStatus(status);
         update.setFinishTime(LocalDateTime.now());
         flowInstanceMapper.updateById(update);
-        ctx.getInstance().setStatus(status);
+        instance.setStatus(status);
+    }
+
+    /**
+     * 取消实例全部 PENDING 任务（树级联终止/子实例终止传播用），返回取消条数
+     */
+    public int cancelInstancePendingTasks(Long instanceId) {
+        List<FlowTaskDO> pending = loadPendingTasks(instanceId);
+        for (FlowTaskDO task : pending) {
+            finishTask(task, TaskStatus.CANCELED, null, null);
+        }
+        return pending.size();
+    }
+
+    /**
+     * 流程树内全部 RUNNING 实例（含根实例本身）：按 root_instance_id 命中；
+     * root_instance_id 尚未回填的历史行（0/NULL）按 id 兜底命中根实例自身
+     */
+    public List<FlowInstanceDO> loadRunningTreeInstances(Long rootInstanceId) {
+        return flowInstanceMapper.selectList(new LambdaQueryWrapper<FlowInstanceDO>()
+                .eq(FlowInstanceDO::getStatus, InstanceStatus.RUNNING)
+                .and(wrapper -> wrapper.eq(FlowInstanceDO::getRootInstanceId, rootInstanceId)
+                        .or()
+                        .eq(FlowInstanceDO::getId, rootInstanceId)));
     }
 
     // ==================== 日志与抄送 ====================

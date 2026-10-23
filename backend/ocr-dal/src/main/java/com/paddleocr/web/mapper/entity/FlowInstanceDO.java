@@ -56,6 +56,24 @@ public class FlowInstanceDO implements Serializable {
     @Schema(description = "业务标题(发起时冗余快照，列表展示)", maxLength = 128)
     private String bizTitle;
 
+    @Schema(description = "父实例 ID(子流程实例指向父实例；根实例为 NULL)")
+    private Long parentInstanceId;
+
+    @Schema(description = "父流程中的子流程节点 ID(SUB_PROCESS 节点 id)", maxLength = 64)
+    private String parentNodeId;
+
+    @Schema(description = "流程树根实例 ID(根实例=自身；树级推进锁/级联按此)")
+    private Long rootInstanceId;
+
+    @Schema(description = "嵌套深度(根实例=0)")
+    private Integer depth;
+
+    @Schema(description = "子流程设计快照(子实例=父版本快照内 SUB_PROCESS 节点的 subDoc；根实例为 NULL 读版本表)")
+    private String designJson;
+
+    @Schema(description = "推进模式(子实例冗余创建时的节点 advanceMode：WAIT=父等待完成/IMMEDIATE=父启动即继续；根实例为 NULL)", maxLength = 16)
+    private String advanceMode;
+
     @Schema(description = "发起时表单数据 JSON 快照(条件求值与详情展示)")
     private String formSnapshot;
 

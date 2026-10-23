@@ -23,6 +23,7 @@ import com.paddleocr.web.model.vo.ProcessDetailVO;
 import com.paddleocr.web.model.vo.ProcessVersionVO;
 import com.paddleocr.web.model.vo.ProcessVO;
 import com.paddleocr.web.service.approval.ApprovalProcessProperties;
+import com.paddleocr.web.service.approval.ProcessDesignValidator;
 import com.paddleocr.web.service.approval.ProcessService;
 import com.paddleocr.web.service.approval.ProcessStatus;
 import lombok.RequiredArgsConstructor;
@@ -41,7 +42,7 @@ import java.util.stream.Collectors;
 
 /**
  * 流程配置服务实现（审批域）：CRUD、状态机（先查后改 + 同事务）、版本编排（单调递增 + 唯一索引兜底）、
- * 发布最小结构校验、Redisson 防重复提交
+ * 发布最小结构校验（委托 ProcessDesignValidator，含 SUB_PROCESS subDoc 递归）、Redisson 防重复提交
  *
  * @author paddleocr
  * @date 2026-09-30
@@ -63,24 +64,6 @@ public class ProcessServiceImpl implements ProcessService {
     /** 节点类型：发起人 */
     private static final String NODE_TYPE_START = "START";
 
-    /** 节点类型：审批人 */
-    private static final String NODE_TYPE_APPROVER = "APPROVER";
-
-    /** 节点类型：条件分支列 */
-    private static final String NODE_TYPE_CONDITION = "CONDITION";
-
-    /** 节点类型：条件分支容器 */
-    private static final String NODE_TYPE_CONDITIONS = "CONDITIONS";
-
-    /** 节点类型：并行节点容器 */
-    private static final String NODE_TYPE_PARALLEL = "PARALLEL";
-
-    /** 条件分支路由模式：人工（上游审批人在 PASS 时选择下一步） */
-    private static final String ROUTING_MANUAL = "MANUAL";
-
-    /** 审批人来源-指定成员/角色 */
-    private static final String APPROVER_SOURCE_MEMBER = "MEMBER";
-
     /** 空 JSON 数组字面量（发起范围 ALL 或集合为空时的落库值） */
     private static final String EMPTY_JSON_ARRAY = "[]";
 
@@ -93,6 +76,8 @@ public class ProcessServiceImpl implements ProcessService {
     private final ApprovalProcessProperties properties;
 
     private final ObjectMapper objectMapper;
+
+    private final ProcessDesignValidator designValidator;
 
     @Override
     public PageResultVO<ProcessVO> page(ProcessPageQuery query) {
@@ -185,7 +170,7 @@ public class ProcessServiceImpl implements ProcessService {
         executeWithSubmitLock(id, () -> {
             ProcessDO process = getExistingProcess(id);
             checkDesignLength(dto.getDesignJson());
-            parseDesignRoot(dto.getDesignJson());
+            parseDesignDoc(dto.getDesignJson());
             ProcessDO patch = new ProcessDO();
             patch.setId(process.getId());
             patch.setDraftJson(dto.getDesignJson());
@@ -224,8 +209,9 @@ public class ProcessServiceImpl implements ProcessService {
                 throw new BusinessException(ResultCode.PROCESS_VERSION_NOT_FOUND, "无可发布的流程设计草稿");
             }
             checkDesignLength(process.getDraftJson());
-            JsonNode root = parseDesignRoot(process.getDraftJson());
-            validateNodeForPublish(root);
+            JsonNode doc = parseDesignDoc(process.getDraftJson());
+            // 发布级校验（含 SUB_PROCESS 节点内嵌 subDoc 递归，depth=0 表示主 doc）
+            designValidator.validateDoc(doc, 0);
 
             String nextVersion = nextVersion(process.getCurrentVersion());
             ProcessVersionDO snapshot = new ProcessVersionDO();
@@ -378,9 +364,9 @@ public class ProcessServiceImpl implements ProcessService {
     /**
      * 设计 JSON 解析性校验：可解析为对象、含 root、root.type 为 START（对齐前端 loadDoc 基础校验）
      *
-     * @return root 节点（供发布级校验继续遍历）
+     * @return 整个设计文档对象（供发布级校验器继续遍历）
      */
-    private JsonNode parseDesignRoot(String designJson) {
+    private JsonNode parseDesignDoc(String designJson) {
         JsonNode doc;
         try {
             doc = objectMapper.readTree(designJson);
@@ -395,94 +381,7 @@ public class ProcessServiceImpl implements ProcessService {
         if (!root.isObject() || !NODE_TYPE_START.equals(root.path("type").asText())) {
             throw new BusinessException(ResultCode.PROCESS_DESIGN_INVALID);
         }
-        return root;
-    }
-
-    /**
-     * 发布级校验（对齐前端 useWorkflowValidate）：先序遍历递归全树
-     * <ul>
-     *     <li>节点 name 非空</li>
-     *     <li>APPROVER 且 source=MEMBER 时 memberIds/roleIds 并集非空</li>
-     *     <li>CONDITIONS routing=MANUAL 时：至少 2 个选项、每列 label 非空（前驱不限：非审批人直连时运行态降级自动路由）</li>
-     *     <li>PARALLEL routing=MANUAL 时：至少 2 个分支（前驱不限：非审批人直连时运行态降级全列并行）</li>
-     *     <li>CONDITION 非 isDefault 且所属容器非人工路由时规则数为零则报错</li>
-     * </ul>
-     */
-    private void validateNodeForPublish(JsonNode node) {
-        validateNodeForPublish(node, null);
-    }
-
-    private void validateNodeForPublish(JsonNode node, String parentRouting) {
-        if (node == null || node.isMissingNode() || node.isNull()) {
-            return;
-        }
-        if (StrUtil.isBlank(node.path("name").asText())) {
-            throw new BusinessException(ResultCode.PROCESS_DESIGN_INVALID, "存在未命名的节点");
-        }
-        String type = node.path("type").asText();
-        JsonNode props = node.path("props");
-        String routing = null;
-        if (NODE_TYPE_CONDITIONS.equals(type)) {
-            routing = props.path("routing").asText("AUTO");
-            if (ROUTING_MANUAL.equals(routing)) {
-                validateManualRouting(node);
-            }
-        }
-        if (NODE_TYPE_PARALLEL.equals(type)) {
-            routing = props.path("routing").asText("AUTO");
-            if (ROUTING_MANUAL.equals(routing)) {
-                JsonNode columns = node.path("conditionNodes");
-                if (!columns.isArray() || columns.size() < 2) {
-                    throw new BusinessException(ResultCode.PROCESS_DESIGN_INVALID,
-                            "人工并行节点「" + node.path("name").asText() + "」至少需要 2 个分支");
-                }
-            }
-        }
-        if (NODE_TYPE_APPROVER.equals(type) && APPROVER_SOURCE_MEMBER.equals(props.path("source").asText())) {
-            if (props.path("memberIds").size() + props.path("roleIds").size() == 0) {
-                throw new BusinessException(ResultCode.PROCESS_DESIGN_INVALID,
-                        "审批节点「" + node.path("name").asText() + "」未选择审批人");
-            }
-        }
-        if (NODE_TYPE_CONDITION.equals(type) && !props.path("isDefault").asBoolean(false)) {
-            // 人工路由容器下的分支列以 label 表达选项，不做规则校验（label 已在 validateManualRouting 统一校验）
-            if (!ROUTING_MANUAL.equals(parentRouting) && countConditionRules(props) == 0) {
-                throw new BusinessException(ResultCode.PROCESS_DESIGN_INVALID,
-                        "条件「" + node.path("name").asText() + "」未配置规则");
-            }
-        }
-        for (JsonNode branch : node.path("conditionNodes")) {
-            validateNodeForPublish(branch, routing);
-        }
-        validateNodeForPublish(node.path("childNode"), parentRouting);
-    }
-
-    /**
-     * 人工路由节点校验：至少 2 个选项，且每个分支列配置了选项名称（label）
-     */
-    private void validateManualRouting(JsonNode conditionsNode) {
-        JsonNode columns = conditionsNode.path("conditionNodes");
-        if (!columns.isArray() || columns.size() < 2) {
-            throw new BusinessException(ResultCode.PROCESS_DESIGN_INVALID,
-                    "人工路由节点「" + conditionsNode.path("name").asText() + "」至少需要 2 个选项");
-        }
-        for (JsonNode column : columns) {
-            if (StrUtil.isBlank(column.path("props").path("label").asText())) {
-                throw new BusinessException(ResultCode.PROCESS_DESIGN_INVALID,
-                        "人工路由节点「" + conditionsNode.path("name").asText() + "」存在未命名的选项");
-            }
-        }
-    }
-
-    /**
-     * 统计条件属性内所有条件组的规则总数
-     */
-    private int countConditionRules(JsonNode props) {
-        int count = 0;
-        for (JsonNode group : props.path("groups")) {
-            count += group.path("rules").size();
-        }
-        return count;
+        return doc;
     }
 
     /**

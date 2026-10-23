@@ -1,26 +1,14 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { deepClone } from '@/utils/clone'
-import { createNodeProps, isBranchContainer, NodeType, normalizeApproverButtons, type BranchDeleteAction, type BranchMoveAction, type ConditionLogic, type ConditionProps, type ConditionRule, type ConditionsProps, type NodeProps, type NodeType as NodeTypeT, type StartProps, type WorkflowDoc, type WorkflowNode } from '@/types/workflow'
+import { createNodeId, createNodeProps, DEFAULT_NODE_NAMES, isBranchColumn, isBranchContainer, MAX_SUB_PROCESS_DEPTH, NodeType, normalizeApproverButtons, type BranchDeleteAction, type BranchMoveAction, type ConditionLogic, type ConditionProps, type ConditionRule, type ConditionsProps, type NodeProps, type NodeType as NodeTypeT, type StartProps, type SubProcessProps, type SubProcessTrailItem, type WorkflowDoc, type WorkflowError, type WorkflowNode } from '@/types/workflow'
 
-/** 默认节点名 */
-const DEFAULT_NAMES: Record<string, string> = {
-  [NodeType.START]: '发起人',
-  [NodeType.APPROVER]: '审批人',
-  [NodeType.CONDITIONS]: '条件分支',
-  [NodeType.CONDITION]: '条件',
-  [NodeType.PARALLEL]: '并行节点',
-  [NodeType.PARALLEL_BRANCH]: '并行分支',
-  [NodeType.TRANSACT]: '办理人',
-}
-
-function genId(): string {
-  return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `wf-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-}
+/** 默认节点名（与类型层共用：子流程内嵌文档的节点命名保持一致） */
+const DEFAULT_NAMES = DEFAULT_NODE_NAMES
 
 function createNode(type: NodeTypeT, overrides: Partial<WorkflowNode> = {}): WorkflowNode {
   return {
-    id: genId(),
+    id: createNodeId(),
     name: DEFAULT_NAMES[type] ?? type,
     type,
     props: createNodeProps(type),
@@ -137,7 +125,12 @@ function nextBranchName(branches: WorkflowNode[], parallel: boolean): string {
 
 /** 深拷贝子树并重新生成全部 id */
 function cloneWithNewIds(node: WorkflowNode): WorkflowNode {
-  const copy: WorkflowNode = { ...node, id: genId(), props: deepClone(node.props), childNode: null }
+  const copy: WorkflowNode = { ...node, id: createNodeId(), props: deepClone(node.props), childNode: null }
+  if (node.type === NodeType.SUB_PROCESS) {
+    // 内嵌子设计一并重新生成 id：主/子 doc 节点 id 全局唯一，避免复制子流程后节点 id 冲突
+    const props = copy.props as SubProcessProps
+    props.subDoc = { ...props.subDoc, root: cloneWithNewIds(props.subDoc.root) }
+  }
   if (node.conditionNodes?.length) {
     copy.conditionNodes = node.conditionNodes.map(cloneWithNewIds)
   }
@@ -287,6 +280,13 @@ function sanitizeNode(node: WorkflowNode | null): WorkflowNode | null {
   if (node.type === NodeType.APPROVER) {
     migrateApproverProps(node)
   }
+  if (node.type === NodeType.SUB_PROCESS) {
+    const props = node.props as SubProcessProps
+    // 子设计复用同一套旧草稿迁移：保证子流程内节点与主流程口径一致（子设计缺失时留待校验拦截）
+    if (props.subDoc?.root) {
+      props.subDoc.root = sanitizeNode(props.subDoc.root) ?? createNode(NodeType.START)
+    }
+  }
   node.childNode = sanitizeNode(node.childNode)
   if (node.conditionNodes?.length) {
     node.conditionNodes = node.conditionNodes.filter((branch) => {
@@ -315,14 +315,63 @@ export const useWorkflowStore = defineStore('workflow', () => {
   /** 当前展开的「添加节点」菜单所属 parentId（全局唯一，点击外部统一清空） */
   const addMenuId = ref<string | null>(null)
 
+  /** 子视图栈：空=主流程视图；每钻入一层子流程压入该子流程节点（面包屑与活动文档定位） */
+  const designStack = ref<SubProcessTrailItem[]>([])
+
+  /**
+   * 当前活动文档：视图栈顶层——主流程为 doc，钻入后为对应子流程节点的 subDoc。
+   * 节点增删改一律在活动文档内进行（子流程内的节点不在主树主链上，主树查找不可见）
+   */
+  const currentDoc = computed<WorkflowDoc>(() => {
+    let current = doc.value
+    for (const level of designStack.value) {
+      const node = findNode(current.root, level.nodeId)
+      const subDoc = node ? (node.props as SubProcessProps).subDoc : null
+      if (!subDoc?.root) {
+        break
+      }
+      current = subDoc
+    }
+    return current
+  })
+
+  /** 当前活动文档的根节点（画布渲染与节点查找的起点） */
+  const currentRoot = computed<WorkflowNode>(() => currentDoc.value.root)
+
+  /** 当前视图层深：0=主流程，1=第 1 层子流程 */
+  const subProcessDepth = computed<number>(() => designStack.value.length)
+
+  /** 当前视图是否还能添加子流程：层深 + 1 不超过最大嵌套层数（与后端 max-depth 同口径） */
+  const canAddSubProcess = computed<boolean>(() => subProcessDepth.value + 1 <= MAX_SUB_PROCESS_DEPTH)
+
+  /** 面包屑文案：主流程名 + 逐级子流程名 */
+  const designCrumbs = computed<string[]>(() => [
+    doc.value.name,
+    ...designStack.value.map((level) => level.name),
+  ])
+
   const activeNode = computed<WorkflowNode | null>(() =>
-    activeNodeId.value ? findNode(doc.value.root, activeNodeId.value) : null,
+    activeNodeId.value ? findNode(currentRoot.value, activeNodeId.value) : null,
   )
+
+  /** 在当前活动文档内查找节点 */
+  function findInActive(id: string): WorkflowNode | null {
+    return findNode(currentRoot.value, id)
+  }
+
+  /** 在当前活动文档内查找父节点 */
+  function findParentInActive(id: string): WorkflowNode | null {
+    return findParent(currentRoot.value, id)
+  }
 
   /** 插入节点：新节点挂到 parent.childNode 前（分支列则插到列链头部） */
   function insertNode(parentId: string, type: NodeTypeT): WorkflowNode | null {
-    const parent = findNode(doc.value.root, parentId)
+    const parent = findInActive(parentId)
     if (!parent || type === NodeType.START) {
+      return null
+    }
+    // 子流程仅可摆在主干链，且受最大嵌套层数限制（与后端发布校验 40067 / 40066 同口径）
+    if (type === NodeType.SUB_PROCESS && (isBranchColumn(parent.type) || !canAddSubProcess.value)) {
       return null
     }
     const node = createNode(type)
@@ -354,8 +403,8 @@ export const useWorkflowStore = defineStore('workflow', () => {
     if (id === doc.value.root.id) {
       return false
     }
-    const parent = findParent(doc.value.root, id)
-    const target = findNode(doc.value.root, id)
+    const parent = findParentInActive(id)
+    const target = findInActive(id)
     if (!parent || !target) {
       return false
     }
@@ -370,13 +419,15 @@ export const useWorkflowStore = defineStore('workflow', () => {
     if (activeNodeId.value === id) {
       activeNodeId.value = null
     }
+    // 删除后视图栈可能失效（删掉的正是当前所在的子流程）：回退到仍存在的层
+    pruneStack()
     return true
   }
 
   /** 复制节点（含子树），插到原节点之后 */
   function copyNode(id: string): WorkflowNode | null {
-    const parent = findParent(doc.value.root, id)
-    const target = findNode(doc.value.root, id)
+    const parent = findParentInActive(id)
+    const target = findInActive(id)
     if (!target || !parent || target.type === NodeType.START) {
       return null
     }
@@ -390,7 +441,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
 
   /** 更新节点属性与名称 */
   function updateNode(id: string, props: NodeProps, name?: string): void {
-    const node = findNode(doc.value.root, id)
+    const node = findInActive(id)
     if (!node) {
       return
     }
@@ -402,7 +453,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
 
   /** 分支容器加列：插入到默认列之前（默认列固定最右），随后按位置重建条件优先级 */
   function addBranch(containerId: string): WorkflowNode | null {
-    const container = findNode(doc.value.root, containerId)
+    const container = findInActive(containerId)
     if (!container || !isBranchContainer(container.type)) {
       return null
     }
@@ -433,7 +484,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
    * 多列形态下默认条件列不可删（NONE），其余列只删自身（COLUMN）。
    */
   function resolveBranchDeleteAction(id: string): BranchDeleteAction {
-    const container = findParent(doc.value.root, id)
+    const container = findParentInActive(id)
     const branches = container?.conditionNodes
     if (!container || !branches) {
       return 'NONE'
@@ -458,7 +509,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
     if (action === 'NONE') {
       return false
     }
-    const container = findParent(doc.value.root, id)
+    const container = findParentInActive(id)
     if (!container) {
       return false
     }
@@ -470,9 +521,10 @@ export const useWorkflowStore = defineStore('workflow', () => {
     if (action === 'CLEAR') {
       // 人工路由：仅删除该列内的审批节点（含子链），分支列与选项 label 保留，可重新添加审批节点
       branches[idx].childNode = null
-      if (activeNodeId.value && !findNode(doc.value.root, activeNodeId.value)) {
+      if (activeNodeId.value && !findInActive(activeNodeId.value)) {
         activeNodeId.value = null
       }
+      pruneStack()
       return true
     }
     if (action === 'BRANCH' || action === 'PARALLEL') {
@@ -489,7 +541,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
           tail.childNode = container.childNode ?? null
         }
         // 容器只会出现在链位置（父级 childNode）：整棵替换为剩列子流程；剩列为空链时直接接容器后继
-        const parent = findParent(doc.value.root, container.id)
+        const parent = findParentInActive(container.id)
         if (!parent || parent.childNode?.id !== container.id) {
           return false
         }
@@ -498,19 +550,22 @@ export const useWorkflowStore = defineStore('workflow', () => {
         // 无剩列（异常兜底）：等价整体移除容器
         return deleteNode(container.id)
       }
-      if (activeNodeId.value && !findNode(doc.value.root, activeNodeId.value)) {
+      if (activeNodeId.value && !findInActive(activeNodeId.value)) {
         activeNodeId.value = null
       }
+      pruneStack()
       return true
     }
     branches.splice(idx, 1)
     normalizeBranches(container.type, branches)
+    // 删除后视图栈可能失效：回退到仍存在的层
+    pruneStack()
     return true
   }
 
   /** 调整分支列位置：按目标位置重排后统一重建默认身份与条件优先级（默认列恒在最右） */
   function moveBranch(id: string, action: BranchMoveAction): boolean {
-    const container = findParent(doc.value.root, id)
+    const container = findParentInActive(id)
     const branches = container?.conditionNodes
     if (!container || !branches) {
       return false
@@ -531,7 +586,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
 
   /** 分支列（CONDITION/PARALLEL_BRANCH）所属容器（CONDITIONS/PARALLEL）的路由方式；非分支列或找不到返回 null（旧数据缺省按 AUTO） */
   function conditionsRoutingOf(conditionId: string): 'AUTO' | 'MANUAL' | null {
-    const parent = findParent(doc.value.root, conditionId)
+    const parent = findParentInActive(conditionId)
     if (!parent || (parent.type !== NodeType.CONDITIONS && parent.type !== NodeType.PARALLEL)) {
       return null
     }
@@ -541,7 +596,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
   /** 可退回的父节点：从根到该节点路径上的发起人 / 审批人节点（不含自身与分支容器） */
   function getRejectTargets(id: string): WorkflowNode[] {
     const trail: WorkflowNode[] = []
-    if (!findTrail(doc.value.root, id, trail)) {
+    if (!findTrail(currentRoot.value, id, trail)) {
       return []
     }
     return trail.filter((node) =>
@@ -556,6 +611,62 @@ export const useWorkflowStore = defineStore('workflow', () => {
       return
     }
     start.props = deepClone(payload)
+  }
+
+  // ==================== 子流程视图栈 ====================
+
+  /**
+   * 钻入子流程：压入该子流程节点并清空选中态（子流程内节点属于另一层设计文档，
+   * 与主流程节点不同作用域）。子设计缺失时放弃钻入。
+   */
+  function enterSubProcess(nodeId: string): boolean {
+    const node = findInActive(nodeId)
+    if (!node || node.type !== NodeType.SUB_PROCESS) {
+      return false
+    }
+    const subDoc = (node.props as SubProcessProps).subDoc
+    if (!subDoc?.root) {
+      return false
+    }
+    designStack.value = [...designStack.value, { nodeId: node.id, name: node.name }]
+    activeNodeId.value = null
+    addMenuId.value = null
+    return true
+  }
+
+  /** 返回指定视图层：level=0 回到主流程；level 越界或无子视图时忽略 */
+  function exitToLevel(level: number): void {
+    if (level < 0 || level >= designStack.value.length) {
+      return
+    }
+    designStack.value = designStack.value.slice(0, level)
+    activeNodeId.value = null
+    addMenuId.value = null
+  }
+
+  /** 定位校验错误：按错误项携带的子视图路径重置视图栈（逐层钻入）并选中出错节点 */
+  function focusError(error: WorkflowError): void {
+    designStack.value = error.path.map((level) => ({ nodeId: level.nodeId, name: level.name }))
+    activeNodeId.value = error.nodeId
+    addMenuId.value = null
+  }
+
+  /**
+   * 视图栈自愈：栈内某层子流程节点已不存在（被删除/撤销/导入覆盖）时截断到上一层，
+   * 避免停留在悬空层级导致画布空白与操作失效
+   */
+  function pruneStack(): void {
+    let current = doc.value
+    for (let level = 0; level < designStack.value.length; level += 1) {
+      const node = findNode(current.root, designStack.value[level].nodeId)
+      const subDoc = node?.type === NodeType.SUB_PROCESS ? (node.props as SubProcessProps).subDoc : null
+      if (!subDoc?.root) {
+        designStack.value = designStack.value.slice(0, level)
+        activeNodeId.value = null
+        return
+      }
+      current = subDoc
+    }
   }
 
   function setActive(id: string | null): void {
@@ -580,6 +691,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
     doc.value = createDefaultDoc()
     activeNodeId.value = null
     addMenuId.value = null
+    designStack.value = []
     zoom.value = 1
   }
 
@@ -596,6 +708,7 @@ export const useWorkflowStore = defineStore('workflow', () => {
       }
       doc.value = sanitizeDoc(candidate)
       activeNodeId.value = null
+      designStack.value = []
       return true
     } catch {
       return false
@@ -613,6 +726,12 @@ export const useWorkflowStore = defineStore('workflow', () => {
     activeNodeId,
     activeNode,
     addMenuId,
+    designStack,
+    currentDoc,
+    currentRoot,
+    subProcessDepth,
+    canAddSubProcess,
+    designCrumbs,
     insertNode,
     deleteNode,
     copyNode,
@@ -625,6 +744,9 @@ export const useWorkflowStore = defineStore('workflow', () => {
     conditionsRoutingOf,
     updateStartInitiators,
     setActive,
+    enterSubProcess,
+    exitToLevel,
+    focusError,
     setZoom,
     openAddMenu,
     closeAddMenu,

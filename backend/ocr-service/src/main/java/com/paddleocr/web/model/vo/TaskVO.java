@@ -27,6 +27,9 @@ public class TaskVO implements Serializable {
     @Schema(description = "流程名称")
     private String processName;
 
+    @Schema(description = "子流程节点名（任务所属实例为子流程实例时非空，前端渲染「子流程」徽标）")
+    private String subProcessName;
+
     @Schema(description = "业务单据类型")
     private String bizType;
 

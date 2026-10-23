@@ -1,5 +1,6 @@
 package com.paddleocr.web.service.approval.engine;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.paddleocr.web.mapper.entity.ProcessDO;
 import com.paddleocr.web.mapper.entity.ProcessVersionDO;
 import com.paddleocr.web.mapper.entity.UserDO;
@@ -60,10 +61,39 @@ public interface FlowEngine {
     void cancelInstance(Long instanceId, UserDO operator, String comment);
 
     /**
+     * 父上下文推进至 SUB_PROCESS 节点：建子实例（冗余 subDoc 与 advance_mode）并推进子 doc 首个审批节点；
+     * 返回父侧行为由调用方按节点 advanceMode 决定：WAIT 停止等待 / IMMEDIATE 继续 advance(childNode)
+     * （调用方已持树级推进锁，父子推进在同一锁同一事务内完成）
+     *
+     * @param parentCtx      父实例上下文（已持树级推进锁）
+     * @param subProcessNode SUB_PROCESS 节点
+     */
+    void buildSubInstance(EngineCtx parentCtx, JsonNode subProcessNode);
+
+    /**
+     * 子实例主干链走完：置 COMPLETED；WAIT 子实例回推父上下文 advanceFrom(SUB_PROCESS.childNode)，
+     * IMMEDIATE 子实例不回推（旁路自终态，父流程不受影响）
+     *
+     * @param subCtx 子实例上下文（已持树级推进锁，且持有本次触发操作记录）
+     */
+    void completeSubInstance(EngineCtx subCtx);
+
+    /**
+     * 流程树级联终止：树内全部非终态实例（含根与各层子实例，不区分 WAIT/IMMEDIATE）置 targetStatus，
+     * 各实例 PENDING 任务级联 CANCELED；已终态实例跳过
+     *
+     * @param rootInstanceId 树根实例 ID
+     * @param targetStatus   目标终态（REJECTED/CANCELED，见 InstanceStatus）
+     */
+    void cascadeTreeTerminal(Long rootInstanceId, String targetStatus);
+
+    /**
      * 下一审批节点预览（无副作用 dryRun）：nodeId 为 null 时从 root 后继推进。
      * conditions（fieldKey→条件值 Map）非空时 CONDITIONS 真实求值（缺失键规则不满足），
      * 缺省按默认列模拟；AUTO_PASS 空审批人节点跳过继续；PARALLEL 汇聚各分支首组审批节点；
      * 推进到链尾无审批节点返回 ended=true。
+     * SUB_PROCESS 节点穿透模拟：WAIT 节点递归进入 subDoc 取首个审批节点（含多层嵌套），
+     * IMMEDIATE 节点非父流程必经路径，跳过子 doc 沿父 childNode 继续（与运行态路径一致）。
      *
      * @param processId     流程定义 ID
      * @param nodeId        当前节点 ID（可 null）

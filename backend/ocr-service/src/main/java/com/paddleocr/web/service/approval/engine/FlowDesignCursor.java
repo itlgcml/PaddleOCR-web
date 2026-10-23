@@ -27,6 +27,7 @@ public final class FlowDesignCursor {
     public static final String TYPE_CONDITIONS = "CONDITIONS";
     public static final String TYPE_PARALLEL = "PARALLEL";
     public static final String TYPE_TRANSACT = "TRANSACT";
+    public static final String TYPE_SUB_PROCESS = "SUB_PROCESS";
 
     /** 条件分支路由模式：人工（上游审批人选择下一步，分支列以 label 表达选项） */
     public static final String ROUTING_MANUAL = "MANUAL";

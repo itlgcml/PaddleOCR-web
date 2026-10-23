@@ -13,6 +13,7 @@ import com.paddleocr.web.model.vo.NextApproverVO;
 import com.paddleocr.web.model.vo.NodeApproverPreviewVO;
 import com.paddleocr.web.model.vo.UserBriefVO;
 import com.paddleocr.web.service.approval.ApprovalRuntimeProperties;
+import com.paddleocr.web.service.approval.ApprovalSubProcessProperties;
 import com.paddleocr.web.service.approval.InstanceStatus;
 import com.paddleocr.web.service.approval.TaskAction;
 import com.paddleocr.web.service.approval.TaskStatus;
@@ -26,6 +27,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +38,7 @@ import java.util.function.Supplier;
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.TYPE_CONDITIONS;
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.TYPE_PARALLEL;
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.TYPE_START;
+import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.TYPE_SUB_PROCESS;
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.TYPE_TRANSACT;
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.branchColumns;
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.chainNext;
@@ -61,6 +64,12 @@ import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.typeOf;
  * 推进过程中的系统说明（降级/自动通过/汇合/退回等）经 addEngineNote 收集，flushActionLog 聚合
  * 拼入该记录 detail（"；"分隔，条目带【节点名】前缀），不再单独成记录。</p>
  *
+ * <p>子流程（SUB_PROCESS）：推进至节点时建子实例（同表，身份继承父实例、冗余 subDoc 与 advanceMode），
+ * WAIT 模式父实例等待子实例完成后回推，IMMEDIATE 模式父实例启动即继续（旁路，父完成判定不感知子实例）；
+ * 终止按整树级联（cascadeTreeTerminal 不区分模式），WAIT 子实例被拒绝时沿父链向上传播至根。
+ * 整树共用 {@code approval:instance:advance:{rootInstanceId}} 树级推进锁——父子互推不再交叉取锁，
+ * 规避锁环死锁。</p>
+ *
  * @author paddleocr
  * @date 2026-10-12
  */
@@ -83,10 +92,26 @@ public class FlowEngineImpl implements FlowEngine {
     private static final String MULTI_AND = "AND";
     private static final String MULTI_OR = "OR";
 
+    /** 子流程推进模式：父流程等待子实例完成后继续（缺省） */
+    private static final String ADVANCE_WAIT = "WAIT";
+
+    /** 子流程推进模式：子实例启动后父流程立即继续（旁路，父完成判定不感知子实例） */
+    private static final String ADVANCE_IMMEDIATE = "IMMEDIATE";
+
+    /** SUB_PROCESS 节点属性：内嵌子设计文档 */
+    private static final String PROP_SUB_DOC = "subDoc";
+
+    /** SUB_PROCESS 节点属性：推进模式（缺省 WAIT，兼容旧快照） */
+    private static final String PROP_ADVANCE_MODE = "advanceMode";
+
+    /** 子实例流程名分隔符（{父流程名}·{子流程节点名}） */
+    private static final String SUB_NAME_SEPARATOR = "·";
+
     private final FlowEngineSupport support;
     private final FlowApproverResolver resolver;
     private final RedissonClient redissonClient;
     private final ApprovalRuntimeProperties properties;
+    private final ApprovalSubProcessProperties subProcessProperties;
     private final TransactionTemplate transactionTemplate;
 
     // ==================== 接口实现 ====================
@@ -119,6 +144,8 @@ public class FlowEngineImpl implements FlowEngine {
         instance.setStartUserName(FlowApproverResolver.displayName(startUser));
         instance.setStatus(InstanceStatus.RUNNING);
         support.insertInstance(instance);
+        // 根实例树身份回填（rootInstanceId=自身、depth=0）：树级锁与级联终止按此列收敛
+        support.markRootInstance(instance);
 
         EngineCtx ctx = support.loadCtx(instance, version.getDesignJson());
         support.stageActionLog(ctx, null, ctx.getCursor().root(), TaskAction.START, startUser, startComment, null);
@@ -201,11 +228,13 @@ public class FlowEngineImpl implements FlowEngine {
                 if (!InstanceStatus.RUNNING.equals(instance.getStatus())) {
                     throw new BusinessException(ResultCode.INSTANCE_STATUS_ILLEGAL);
                 }
-                EngineCtx ctx = support.loadCtx(instance, null);
-                for (FlowTaskDO pendingTask : support.loadPendingTasks(instanceId)) {
-                    support.finishTask(pendingTask, TaskStatus.CANCELED, null, null);
+                if (instance.getParentInstanceId() != null) {
+                    // 子实例不允许独立撤销：撤销须从根实例发起，按整树级联
+                    throw new BusinessException(ResultCode.SUB_INSTANCE_OPERATION_FORBIDDEN);
                 }
-                support.finishInstance(ctx, InstanceStatus.CANCELED);
+                EngineCtx ctx = support.loadCtx(instance, null);
+                // 撤销范围由单实例扩展为流程树：在途子实例（含 IMMEDIATE 旁路）一并取消
+                cascadeTreeTerminal(ctx.getRootInstanceId(), InstanceStatus.CANCELED);
                 support.stageActionLog(ctx, null, null, TaskAction.CANCEL, operator, comment, "撤销实例，待办任务全部取消");
                 support.flushActionLog(ctx);
             });
@@ -376,11 +405,18 @@ public class FlowEngineImpl implements FlowEngine {
         JsonNode props = node == null ? null : propsOf(node);
         boolean backToStart = props != null && props.path("canRejectToStart").asBoolean(false);
         String rejectTargetId = props == null ? "" : props.path("rejectTargetId").asText("");
+        if (backToStart || (rejectTargetId != null && !rejectTargetId.isEmpty())) {
+            // 重来前清理在跑子实例：回到子流程之前节点时，等待中/旁路的子实例一并取消
+            cancelRunningSubInstances(ctx);
+        }
         if (backToStart) {
             backToStart(ctx, "拒绝退回，发起人重新提交");
         } else if (rejectTargetId != null && !rejectTargetId.isEmpty()) {
             JsonNode target = requireReturnTarget(ctx, rejectTargetId);
             backToNode(ctx, target, "拒绝退回到【" + nameOf(target) + "】");
+        } else if (isSubInstance(ctx)) {
+            // 子实例拒绝终止：WAIT 向上传播终止整树，IMMEDIATE 仅终止自身子树
+            rejectSubInstance(ctx);
         } else {
             support.finishInstance(ctx, InstanceStatus.REJECTED);
         }
@@ -397,11 +433,13 @@ public class FlowEngineImpl implements FlowEngine {
         support.cancelPendingTasks(ctx, task.getNodeId());
         support.stageActionLog(ctx, task, node, TaskAction.RETURN, operator, dto.getComment(),
                 "退回到【" + nameOf(target) + "】");
+        // 重来前清理在跑子实例：退回到子流程之前节点时，等待中/旁路的子实例一并取消
+        cancelRunningSubInstances(ctx);
         backToNode(ctx, target, null);
     }
 
     private void doTransferOrDelegate(FlowTaskDO task, TaskActionDTO dto, UserDO operator,
-                                      EngineCtx ctx, JsonNode node) {
+                                       EngineCtx ctx, JsonNode node) {
         boolean delegate = TaskAction.DELEGATE.equals(dto.getAction());
         support.requireButtonEnabled(node, delegate ? "DELEGATE" : "TRANSFER");
         UserDO receiver = support.requireUser(dto.getReceiverId());
@@ -575,15 +613,31 @@ public class FlowEngineImpl implements FlowEngine {
                 }
                 return;
             }
+            if (TYPE_SUB_PROCESS.equals(type)) {
+                // 建子实例并推进子 doc（同一树锁 + 同一事务内完成）
+                buildSubInstance(ctx, node);
+                if (ADVANCE_WAIT.equals(advanceModeOf(node))) {
+                    // 父实例在节点处等待子实例完成（无 PENDING 任务，由子实例完成时回推）
+                    return;
+                }
+                // IMMEDIATE：子实例已启动，父流程按旁路语义继续向后推进
+                node = chainNext(node);
+                continue;
+            }
             // APPROVER
             resolveApproverAndCreate(node, ctx);
             return;
         }
         if (host != null) {
             tryMergeParallel(host, ctx);
-        } else {
-            support.finishInstance(ctx, InstanceStatus.COMPLETED);
+            return;
         }
+        if (isSubInstance(ctx)) {
+            // 子实例主干根链走完：置 COMPLETED，WAIT 子实例回推父流程
+            completeSubInstance(ctx);
+            return;
+        }
+        support.finishInstance(ctx, InstanceStatus.COMPLETED);
     }
 
     /**
@@ -633,6 +687,182 @@ public class FlowEngineImpl implements FlowEngine {
         JsonNode container = host.getContainer();
         support.addEngineNote(ctx, container, "并行分支全部完成，继续推进");
         advanceFrom(chainNext(container), ctx.getCursor().findBranchHost(idOf(container)), ctx);
+    }
+
+    // ==================== 子流程（SUB_PROCESS） ====================
+
+    /**
+     * 节点推进模式：仅 WAIT/IMMEDIATE 两种（缺省 WAIT，旧快照与非法值一律按 WAIT 处理）
+     */
+    private String advanceModeOf(JsonNode node) {
+        return ADVANCE_IMMEDIATE.equals(propsOf(node).path(PROP_ADVANCE_MODE).asText(ADVANCE_WAIT))
+                ? ADVANCE_IMMEDIATE : ADVANCE_WAIT;
+    }
+
+    /**
+     * 是否子实例上下文（parentInstanceId 非空 = 由 SUB_PROCESS 节点派生）
+     */
+    private boolean isSubInstance(EngineCtx ctx) {
+        return ctx.getParentInstanceId() != null;
+    }
+
+    /**
+     * 子设计文档校验：SUB_PROCESS.props.subDoc 必须为含 root 且 root.type=START 的 WorkflowDoc
+     */
+    private JsonNode requireSubDoc(JsonNode subProcessNode) {
+        JsonNode subDoc = propsOf(subProcessNode).path(PROP_SUB_DOC);
+        if (!subDoc.isObject() || !TYPE_START.equals(typeOf(subDoc.path("root")))) {
+            throw new BusinessException(ResultCode.SUB_PROCESS_DESIGN_INVALID,
+                    "子流程【" + nameOf(subProcessNode) + "】设计缺失或根节点非法");
+        }
+        return subDoc;
+    }
+
+    @Override
+    public void buildSubInstance(EngineCtx parentCtx, JsonNode subProcessNode) {
+        JsonNode subDoc = requireSubDoc(subProcessNode);
+        int parentDepth = parentCtx.getDepth() == null ? 0 : parentCtx.getDepth();
+        if (parentDepth + 1 > subProcessProperties.getMaxDepth()) {
+            throw new BusinessException(ResultCode.SUB_PROCESS_DEPTH_EXCEEDED);
+        }
+        String advanceMode = advanceModeOf(subProcessNode);
+        FlowInstanceDO parent = parentCtx.getInstance();
+        FlowInstanceDO sub = new FlowInstanceDO();
+        // 身份继承父实例（同一单据、同一发起人、同一版本快照）
+        sub.setProcessId(parent.getProcessId());
+        sub.setProcessCode(parent.getProcessCode());
+        sub.setProcessName(parent.getProcessName() + SUB_NAME_SEPARATOR + nameOf(subProcessNode));
+        sub.setProcessVersion(parent.getProcessVersion());
+        sub.setProcessVersionId(parent.getProcessVersionId());
+        sub.setBizType(parent.getBizType());
+        sub.setBizId(parent.getBizId());
+        sub.setBizTitle(parent.getBizTitle());
+        sub.setFormSnapshot(parent.getFormSnapshot());
+        sub.setStartUserId(parent.getStartUserId());
+        sub.setStartUserName(parent.getStartUserName());
+        sub.setParentInstanceId(parent.getId());
+        sub.setParentNodeId(idOf(subProcessNode));
+        sub.setRootInstanceId(parentCtx.getRootInstanceId());
+        sub.setDepth(parentDepth + 1);
+        sub.setDesignJson(support.writeJson(subDoc));
+        sub.setAdvanceMode(advanceMode);
+        sub.setStatus(InstanceStatus.RUNNING);
+        support.insertInstance(sub);
+
+        EngineCtx subCtx = support.loadCtx(sub, sub.getDesignJson());
+        support.stageActionLog(subCtx, null, subCtx.getCursor().root(), TaskAction.START, null, null, "子流程启动");
+        support.addEngineNote(parentCtx, subProcessNode, ADVANCE_WAIT.equals(advanceMode)
+                ? "进入子流程【" + nameOf(subProcessNode) + "】，等待其完成"
+                : "进入子流程【" + nameOf(subProcessNode) + "】，启动后继续");
+        // 子 doc 首节点推进（空审批人/条件求值/降级等既有语义原样作用于子 doc）；
+        // 子 doc 无审批节点时链尾判定直接触发 completeSubInstance（WAIT 同步回推父，此处不再重复推进）
+        advanceFrom(chainNext(subCtx.getCursor().root()), null, subCtx);
+        support.flushActionLog(subCtx);
+        log.info("子流程实例创建, parentInstanceId={}, subInstanceId={}, nodeId={}, advanceMode={}, depth={}",
+                parent.getId(), sub.getId(), idOf(subProcessNode), advanceMode, sub.getDepth());
+    }
+
+    @Override
+    public void completeSubInstance(EngineCtx subCtx) {
+        FlowInstanceDO sub = subCtx.getInstance();
+        support.finishInstance(subCtx, InstanceStatus.COMPLETED);
+        boolean waitMode = !ADVANCE_IMMEDIATE.equals(sub.getAdvanceMode());
+        support.addEngineNote(subCtx, null, waitMode ? "子流程已完成，父流程继续" : "子流程已完成（旁路）");
+        if (!waitMode) {
+            // IMMEDIATE：旁路自终态，不回推父流程（父可能仍在后续节点流转或已终态）
+            return;
+        }
+        FlowInstanceDO parent = support.requireInstance(sub.getParentInstanceId());
+        if (!InstanceStatus.RUNNING.equals(parent.getStatus())) {
+            support.addEngineNote(subCtx, null, "父流程已终止，子流程完成不再回推");
+            return;
+        }
+        EngineCtx parentCtx = support.loadCtx(parent, null);
+        JsonNode parentNode = parentCtx.getCursor().findNode(sub.getParentNodeId());
+        if (parentNode == null) {
+            throw new BusinessException(ResultCode.PROCESS_NODE_NOT_FOUND, "父流程中的子流程节点缺失");
+        }
+        // 子实例侧操作触发本次链尾时，父上下文无宿主操作记录：父侧推进说明并入子实例本次记录
+        boolean borrowNotes = parentCtx.getPendingActionLog() == null;
+        advanceFrom(chainNext(parentNode), parentCtx.getCursor().findBranchHost(idOf(parentNode)), parentCtx);
+        if (borrowNotes) {
+            subCtx.getEngineNotes().addAll(parentCtx.getEngineNotes());
+            parentCtx.getEngineNotes().clear();
+        }
+        log.info("子流程实例完成并回推, subInstanceId={}, parentInstanceId={}, parentNodeId={}",
+                sub.getId(), parent.getId(), sub.getParentNodeId());
+    }
+
+    @Override
+    public void cascadeTreeTerminal(Long rootInstanceId, String targetStatus) {
+        for (FlowInstanceDO instance : support.loadRunningTreeInstances(rootInstanceId)) {
+            int canceled = support.cancelInstancePendingTasks(instance.getId());
+            support.finishInstance(instance, targetStatus);
+            log.info("流程树级联终止, instanceId={}, status={}, canceledTasks={}",
+                    instance.getId(), targetStatus, canceled);
+        }
+    }
+
+    /**
+     * 子树级联终止：树内属于 ancestorId 子树的非终态实例置 targetStatus，PENDING 任务级联取消。
+     * includeSelf=true 用于 IMMEDIATE 子实例拒绝（自身及下层子树终止，父流程与旁路子实例不受影响）；
+     * includeSelf=false 用于退回清理（仅清理派生出的在跑子实例，当前实例继续流转）
+     */
+    private void cascadeSubTree(Long rootInstanceId, Long ancestorId, String targetStatus, boolean includeSelf) {
+        List<FlowInstanceDO> running = support.loadRunningTreeInstances(rootInstanceId);
+        Map<Long, Long> parentOf = new HashMap<>(running.size() * 4 / 3 + 1);
+        for (FlowInstanceDO instance : running) {
+            parentOf.put(instance.getId(), instance.getParentInstanceId());
+        }
+        for (FlowInstanceDO instance : running) {
+            if (!inSubTree(instance.getId(), ancestorId, parentOf, includeSelf)) {
+                continue;
+            }
+            int canceled = support.cancelInstancePendingTasks(instance.getId());
+            support.finishInstance(instance, targetStatus);
+            log.info("流程子树级联终止, instanceId={}, ancestorId={}, status={}, canceledTasks={}",
+                    instance.getId(), ancestorId, targetStatus, canceled);
+        }
+    }
+
+    /**
+     * 实例是否位于 ancestorId 子树内（沿 parentInstanceId 链回溯；自身是否计入由 includeSelf 决定）
+     */
+    private boolean inSubTree(Long instanceId, Long ancestorId, Map<Long, Long> parentOf, boolean includeSelf) {
+        if (instanceId.equals(ancestorId)) {
+            return includeSelf;
+        }
+        Long cursor = parentOf.get(instanceId);
+        while (cursor != null) {
+            if (cursor.equals(ancestorId)) {
+                return true;
+            }
+            cursor = parentOf.get(cursor);
+        }
+        return false;
+    }
+
+    /**
+     * 退回/驳回重来前清理在跑子实例：当前实例派生出的在跑子实例连同其下层子树一并取消，
+     * 避免父流程退回后仍有等待中/旁路的子实例继续流转（§4.4.4）
+     */
+    private void cancelRunningSubInstances(EngineCtx ctx) {
+        cascadeSubTree(ctx.getRootInstanceId(), ctx.getInstance().getId(), InstanceStatus.CANCELED, false);
+    }
+
+    /**
+     * 子实例拒绝终止：WAIT 子实例沿父链向上传播（整树终止，父流程一并终止）；
+     * IMMEDIATE 子实例仅自身子树终止（旁路，父流程不受影响）
+     */
+    private void rejectSubInstance(EngineCtx ctx) {
+        FlowInstanceDO sub = ctx.getInstance();
+        if (ADVANCE_IMMEDIATE.equals(sub.getAdvanceMode())) {
+            support.addEngineNote(ctx, null, "子流程被拒绝（旁路，父流程不受影响）");
+            cascadeSubTree(ctx.getRootInstanceId(), sub.getId(), InstanceStatus.REJECTED, true);
+            return;
+        }
+        support.addEngineNote(ctx, null, "子流程被拒绝，父流程已终止");
+        cascadeTreeTerminal(ctx.getRootInstanceId(), InstanceStatus.REJECTED);
     }
 
     /**
@@ -745,6 +975,22 @@ public class FlowEngineImpl implements FlowEngine {
                 node = chainNext(node);
                 continue;
             }
+            if (TYPE_SUB_PROCESS.equals(type)) {
+                // 穿透语义（§4.4.7）：WAIT 节点进入 subDoc 取首个审批节点（子链走完则父流程继续 childNode）；
+                // IMMEDIATE 节点非父流程必经路径，跳过子 doc 沿父 childNode 继续模拟——与运行态路径一致
+                JsonNode subDoc = propsOf(node).path(PROP_SUB_DOC);
+                boolean subDocValid = subDoc.isObject() && TYPE_START.equals(typeOf(subDoc.path("root")));
+                if (ADVANCE_WAIT.equals(advanceModeOf(node)) && subDocValid) {
+                    FlowDesignCursor subCursor = FlowDesignCursor.of(subDoc);
+                    boolean subDone = dryRunCollect(chainNext(subCursor.root()), subCursor, conditions,
+                            currentUserId, out);
+                    if (!subDone) {
+                        return false;
+                    }
+                }
+                node = chainNext(node);
+                continue;
+            }
             // APPROVER：解析为空（含 emptyPolicy 折算后仍空）→ 视为 AUTO_PASS 跳过继续
             Resolved resolved = resolver.resolve(node, currentUserId);
             if (resolved.getUsers().isEmpty()) {
@@ -770,10 +1016,20 @@ public class FlowEngineImpl implements FlowEngine {
     // ==================== 基础设施 ====================
 
     /**
-     * 实例级推进锁：tryLock 不等待；事务在锁内提交，锁在 finally 释放
+     * 解析实例所属流程树的根实例 ID（旧数据 rootInstanceId 未回填时回退自身）
+     */
+    private Long resolveRootInstanceId(Long instanceId) {
+        Long root = support.requireInstance(instanceId).getRootInstanceId();
+        return root == null || root.compareTo(0L) <= 0 ? instanceId : root;
+    }
+
+    /**
+     * 树级推进锁：按实例解析 rootInstanceId 加锁（整树串行），tryLock 不等待；
+     * 事务在锁内提交，锁在 finally 释放。父子互推（建子实例/子实例回推）共用同一把锁，
+     * 不再交叉获取两级实例锁——规避"父→子、子→父"锁环死锁
      */
     private <T> T executeWithAdvanceLock(Long instanceId, Supplier<T> action) {
-        RLock lock = redissonClient.getLock(LOCK_KEY_PREFIX + instanceId);
+        RLock lock = redissonClient.getLock(LOCK_KEY_PREFIX + resolveRootInstanceId(instanceId));
         boolean locked = false;
         try {
             locked = lock.tryLock(LOCK_WAIT_SECONDS, properties.getLockLeaseSeconds(), TimeUnit.SECONDS);
