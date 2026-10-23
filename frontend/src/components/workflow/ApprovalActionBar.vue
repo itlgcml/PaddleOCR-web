@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import ApprovalActionDialog from './ApprovalActionDialog.vue'
 import { ACTION_META, ACTION_ORDER, type ActionOption } from './approval-actions'
 import type { ApprovalActionKey, ApprovalActionPayload } from '@/types/workflow'
-import type { PendingSignTaskVO } from '@/types/approval'
+import type { PendingSignTaskVO, SubProcessApproverOptionVO } from '@/types/approval'
 
 const props = withDefaults(
   defineProps<{
@@ -19,10 +19,12 @@ const props = withDefaults(
     manualRouteMultiple?: boolean
     /** 待办理加签任务（同意弹窗提示加签人未审并提供删除减签） */
     pendingSignTasks?: PendingSignTaskVO[]
+    /** 子流程下一节点可指定审批人目标（PASS 且下一节点为子流程启动后继续时非空） */
+    subProcessApproverOptions?: SubProcessApproverOptionVO[]
     /** 提交中：禁用按钮并锁定弹窗 */
     loading?: boolean
   }>(),
-  { actions: undefined, memberOptions: () => [], nodeOptions: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, pendingSignTasks: () => [], loading: false },
+  { actions: undefined, memberOptions: () => [], nodeOptions: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, pendingSignTasks: () => [], subProcessApproverOptions: () => [], loading: false },
 )
 
 const emit = defineEmits<{ (e: 'submit', payload: ApprovalActionPayload): void }>()
@@ -74,6 +76,7 @@ defineExpose({ close })
     :node-options="nodeOptions"
     :manual-route-options="manualRouteOptions"
     :manual-route-multiple="manualRouteMultiple"
+    :sub-process-approver-options="subProcessApproverOptions"
     :pending-sign-tasks="pendingSignTasks"
     :loading="loading"
     @submit="emit('submit', $event)"

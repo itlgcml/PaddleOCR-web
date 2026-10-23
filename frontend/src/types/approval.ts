@@ -208,6 +208,20 @@ export interface ManualRouteOptionVO {
   assigneeOptions: UserBriefVO[]
 }
 
+/** 子流程下一节点可指定审批人目标（SubProcessApproverOptionVO 镜像，下一节点为子流程「启动后继续」时非空） */
+export interface SubProcessApproverOptionVO {
+  /** 目标审批节点 ID（PASS 时作为 subProcessAssignees 的 key 回传） */
+  nodeId: string
+  /** 目标审批节点名称 */
+  nodeName: string
+  /** 归属：MAIN=主流程 SUB_PROCESS=子流程 */
+  scopeType: 'MAIN' | 'SUB_PROCESS'
+  /** 归属流程名称（主流程名/子流程节点名） */
+  scopeName: string | null
+  /** 候选审批人（非空时前端渲染指定审批人下拉，空则按节点默认解析） */
+  assigneeOptions: UserBriefVO[]
+}
+
 /** 待办理加签任务（PendingSignTaskVO 镜像：同意前提示加签人未审，可删除减签） */
 export interface PendingSignTaskVO {
   /** 加签任务 ID，REDUCE_SIGN 时作为 targetTaskId 回传 */
@@ -231,6 +245,8 @@ export interface TaskDetailVO extends InstanceDetailVO {
   manualRouteOptions: ManualRouteOptionVO[]
   /** 人工路由是否多选：下一节点为人工并行（PARALLEL routing=MANUAL）时 true，PASS 携带 routeTargetIds 多选 */
   manualRouteMultiple: boolean
+  /** 下一节点为子流程（启动后继续）时可指定审批人目标（子流程首节点 + 父链下一节点，PASS 弹窗分开展示并可分别指定） */
+  subProcessApproverOptions: SubProcessApproverOptionVO[]
   /** 当前任务直接派生且 PENDING 的加签任务：非空时同意弹窗提示「加签人还没有同意」并提供删除减签 */
   pendingSignTasks: PendingSignTaskVO[]
   /** 当前用户=assignee 且任务 PENDING */
@@ -273,6 +289,10 @@ export interface NodeApproverPreviewVO {
   nodeId: string
   nodeName: string
   multiMode: 'OR' | 'AND'
+  /** 节点归属作用域：MAIN=主流程 SUB_PROCESS=子流程（前端据此区分主/子流程审批人） */
+  scopeType: 'MAIN' | 'SUB_PROCESS'
+  /** 归属流程名称：主流程名或子流程节点名 */
+  scopeName: string | null
   approvers: UserBriefVO[]
 }
 

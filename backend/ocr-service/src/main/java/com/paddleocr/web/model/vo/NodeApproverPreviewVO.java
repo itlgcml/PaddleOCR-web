@@ -27,6 +27,12 @@ public class NodeApproverPreviewVO implements Serializable {
     @Schema(description = "多实例模式：OR=或签 AND=会签")
     private String multiMode;
 
+    @Schema(description = "节点归属作用域：MAIN=主流程 SUB_PROCESS=子流程（前端据此区分主/子流程审批人）")
+    private String scopeType;
+
+    @Schema(description = "归属流程名称：主流程名或子流程节点名（前端展示用）")
+    private String scopeName;
+
     @Schema(description = "审批人清单（解析后）")
     private List<UserBriefVO> approvers;
 }

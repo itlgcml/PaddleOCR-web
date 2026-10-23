@@ -16,6 +16,7 @@ import com.paddleocr.web.model.vo.InstanceDetailVO;
 import com.paddleocr.web.model.vo.ManualRouteOptionVO;
 import com.paddleocr.web.model.vo.PendingSignTaskVO;
 import com.paddleocr.web.model.vo.ReturnTargetVO;
+import com.paddleocr.web.model.vo.SubProcessApproverOptionVO;
 import com.paddleocr.web.model.vo.TaskDetailVO;
 import com.paddleocr.web.model.vo.TaskVO;
 import com.paddleocr.web.model.vo.UserBriefVO;
@@ -40,8 +41,11 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.TYPE_APPROVER;
+import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.TYPE_START;
+import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.TYPE_SUB_PROCESS;
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.branchColumns;
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.chainNext;
+import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.firstApproverInBranch;
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.idOf;
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.isManualParallel;
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.isManualRouting;
@@ -68,6 +72,15 @@ public class FlowTaskServiceImpl implements FlowTaskService {
 
     /** 后加签任务派生类型（与 FlowEngineImpl 同值） */
     private static final String SIGN_AFTER = "AFTER_SIGN";
+
+    /** 子流程推进模式：启动后立即继续（与 FlowEngineImpl 同值） */
+    private static final String ADVANCE_IMMEDIATE = "IMMEDIATE";
+
+    /** 可指定审批人节点归属：主流程 */
+    private static final String SCOPE_MAIN = "MAIN";
+
+    /** 可指定审批人节点归属：子流程 */
+    private static final String SCOPE_SUB_PROCESS = "SUB_PROCESS";
 
     private final FlowTaskMapper flowTaskMapper;
     private final FlowInstanceMapper flowInstanceMapper;
@@ -115,6 +128,7 @@ public class FlowTaskServiceImpl implements FlowTaskService {
         vo.setReturnTargets(Collections.emptyList());
         vo.setManualRouteOptions(Collections.emptyList());
         vo.setManualRouteMultiple(false);
+        vo.setSubProcessApproverOptions(Collections.emptyList());
         if (cursor != null) {
             JsonNode node = cursor.findNode(task.getNodeId());
             if (SIGN_BEFORE.equals(task.getSignType())) {
@@ -127,6 +141,7 @@ public class FlowTaskServiceImpl implements FlowTaskService {
                 vo.setManualRouteOptions(buildManualRouteOptions(node,
                         instance == null ? null : instance.getStartUserId()));
                 vo.setManualRouteMultiple(node != null && isManualParallel(chainNext(node)));
+                vo.setSubProcessApproverOptions(buildSubProcessApproverOptions(node, instance));
             }
         }
         vo.setPendingSignTasks(buildPendingSignTasks(task));
@@ -342,14 +357,19 @@ public class FlowTaskServiceImpl implements FlowTaskService {
      * 候选为空（如 LEADER/SELF_SELECT 降级）同样返回空列表，运行时仍按 emptyPolicy 兜底。
      */
     private List<UserBriefVO> buildAssigneeOptions(JsonNode column, JsonNode container, Long startUserId) {
+        JsonNode firstApprover = routeAssigneeTarget(column, container);
+        return firstApprover == null ? Collections.emptyList() : resolveAssignees(firstApprover, startUserId);
+    }
+
+    /**
+     * 解析审批节点的候选审批人（与引擎 resolve 同口径）；候选为空（如 LEADER/SELF_SELECT 降级）
+     * 返回空列表，运行时仍按 emptyPolicy 兜底。
+     */
+    private List<UserBriefVO> resolveAssignees(JsonNode approver, Long startUserId) {
         if (startUserId == null) {
             return Collections.emptyList();
         }
-        JsonNode firstApprover = routeAssigneeTarget(column, container);
-        if (firstApprover == null) {
-            return Collections.emptyList();
-        }
-        Resolved resolved = resolver.resolve(firstApprover, startUserId);
+        Resolved resolved = resolver.resolve(approver, startUserId);
         List<UserBriefVO> users = new ArrayList<>(resolved.getUsers().size());
         for (UserDO user : resolved.getUsers()) {
             UserBriefVO brief = new UserBriefVO();
@@ -358,5 +378,51 @@ public class FlowTaskServiceImpl implements FlowTaskService {
             users.add(brief);
         }
         return users;
+    }
+
+    /**
+     * 子流程下一节点可指定审批人目标：当前任务节点（APPROVER）的链后继若为子流程（SUB_PROCESS）
+     * 且推进模式为 IMMEDIATE（启动后继续），则返回两个目标——子流程内部首个审批节点（SUB_PROCESS
+     * 作用域）+ 父链下一审批节点（MAIN 作用域），PASS 弹窗据此分开展示并分别指定审批人。
+     * 任一目标定位不到（子 doc/父链无审批节点或遇嵌套分支容器，审批人不唯一）则该侧省略。
+     * 否则返回空列表。
+     */
+    private List<SubProcessApproverOptionVO> buildSubProcessApproverOptions(JsonNode node, FlowInstanceDO instance) {
+        if (node == null || instance == null) {
+            return Collections.emptyList();
+        }
+        JsonNode subProcessNode = chainNext(node);
+        if (subProcessNode == null || !TYPE_SUB_PROCESS.equals(typeOf(subProcessNode))
+                || !ADVANCE_IMMEDIATE.equals(propsOf(subProcessNode).path("advanceMode").asText("WAIT"))) {
+            return Collections.emptyList();
+        }
+        JsonNode subDoc = propsOf(subProcessNode).path("subDoc");
+        if (!subDoc.isObject() || !TYPE_START.equals(typeOf(subDoc.path("root")))) {
+            return Collections.emptyList();
+        }
+        Long startUserId = instance.getStartUserId();
+        List<SubProcessApproverOptionVO> options = new ArrayList<>();
+        // 子流程内部首个审批节点（子 doc 链首）
+        JsonNode subFirst = firstApproverInBranch(subDoc.path("root"));
+        if (subFirst != null) {
+            options.add(buildSubProcessOption(subFirst, SCOPE_SUB_PROCESS, nameOf(subProcessNode), startUserId));
+        }
+        // 父链下一审批节点（SUB_PROCESS.childNode 链首）
+        JsonNode parentFirst = firstApproverInBranch(subProcessNode);
+        if (parentFirst != null) {
+            options.add(buildSubProcessOption(parentFirst, SCOPE_MAIN, instance.getProcessName(), startUserId));
+        }
+        return options;
+    }
+
+    private SubProcessApproverOptionVO buildSubProcessOption(JsonNode approver, String scopeType,
+                                                             String scopeName, Long startUserId) {
+        SubProcessApproverOptionVO option = new SubProcessApproverOptionVO();
+        option.setNodeId(idOf(approver));
+        option.setNodeName(nameOf(approver));
+        option.setScopeType(scopeType);
+        option.setScopeName(scopeName);
+        option.setAssigneeOptions(resolveAssignees(approver, startUserId));
+        return option;
     }
 }

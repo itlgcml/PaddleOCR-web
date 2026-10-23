@@ -43,6 +43,40 @@ const selectedProcess = computed(
   () => processes.value.find((item) => item.id === form.processId) ?? null,
 )
 
+/** 子流程启动后继续（IMMEDIATE）场景：下一节点同时含子流程与主流程审批节点 */
+const isSubProcessImmediate = computed(() => {
+  const nodes = preview.value?.nodes ?? []
+  return nodes.some((item) => item.scopeType === 'SUB_PROCESS') && nodes.some((item) => item.scopeType === 'MAIN')
+})
+
+/** 子流程名（IMMEDIATE 场景标题标注用） */
+const subProcessName = computed(
+  () => preview.value?.nodes.find((item) => item.scopeType === 'SUB_PROCESS')?.scopeName ?? '',
+)
+
+/** 预览标题：IMMEDIATE 场景提示主/子流程双线设置；并行场景按节点分行；其余为第一审批阶段 */
+const previewTitle = computed(() => {
+  const nodes = preview.value?.nodes ?? []
+  if (isSubProcessImmediate.value) {
+    return `下一节点为子流程「${subProcessName.value}」启动后继续，请设置主流程审批与子流程审批`
+  }
+  if (nodes.length > 1) {
+    return '下一阶段为并行节点，请按节点名称分别选择审批人'
+  }
+  return '提交后第一审批阶段审批人（可搜索选择）'
+})
+
+/** 节点标签：子流程节点标"子流程「名」· 节点名"；IMMEDIATE 场景的主流程节点标"主流程「名」· 节点名" */
+function nodeLabel(node: NodeApproverPreviewVO): string {
+  if (node.scopeType === 'SUB_PROCESS') {
+    return `子流程${node.scopeName ? `「${node.scopeName}」` : ''} · ${node.nodeName}`
+  }
+  if (isSubProcessImmediate.value) {
+    return `主流程${node.scopeName ? `「${node.scopeName}」` : ''} · ${node.nodeName}`
+  }
+  return node.nodeName
+}
+
 /** 条件分支求值入参：键与 form_snapshot 字段一致（title/amount/reason，值转字符串） */
 const conditions = computed<Record<string, string>>(() => ({
   title: props.formData.title,
@@ -220,16 +254,10 @@ async function onSubmit(): Promise<void> {
           <div class="drawer-preview-title">提交后流程将直接结束（无审批节点）</div>
         </template>
         <template v-else>
-          <div class="drawer-preview-title">
-            {{
-              preview.nodes.length > 1
-                ? '下一阶段为并行节点，请按节点名称分别选择审批人'
-                : '提交后第一审批阶段审批人（可搜索选择）'
-            }}
-          </div>
+          <div class="drawer-preview-title">{{ previewTitle }}</div>
           <div v-for="node in preview.nodes" :key="node.nodeId" class="drawer-preview-node">
             <div class="drawer-preview-node-head">
-              <span class="drawer-preview-name">{{ node.nodeName }}</span>
+              <span class="drawer-preview-name">{{ nodeLabel(node) }}</span>
               <span class="drawer-preview-mode">{{ node.multiMode === 'AND' ? '会签' : '或签' }}</span>
             </div>
             <el-select

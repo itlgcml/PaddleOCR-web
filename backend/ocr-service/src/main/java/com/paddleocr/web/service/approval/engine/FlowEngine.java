@@ -92,8 +92,8 @@ public interface FlowEngine {
      * conditions（fieldKey→条件值 Map）非空时 CONDITIONS 真实求值（缺失键规则不满足），
      * 缺省按默认列模拟；AUTO_PASS 空审批人节点跳过继续；PARALLEL 汇聚各分支首组审批节点；
      * 推进到链尾无审批节点返回 ended=true。
-     * SUB_PROCESS 节点穿透模拟：WAIT 节点递归进入 subDoc 取首个审批节点（含多层嵌套），
-     * IMMEDIATE 节点非父流程必经路径，跳过子 doc 沿父 childNode 继续（与运行态路径一致）。
+     * SUB_PROCESS 节点穿透模拟：WAIT 节点递归进入 subDoc 取首个审批节点（含多层嵌套）；
+     * IMMEDIATE 节点子实例旁路启动，子 doc 首组审批人与父 childNode 首组审批人一并返回（两路并行，与运行态一致）。
      *
      * @param processId     流程定义 ID
      * @param nodeId        当前节点 ID（可 null）

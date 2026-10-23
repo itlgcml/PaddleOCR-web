@@ -107,6 +107,12 @@ public class FlowEngineImpl implements FlowEngine {
     /** 子实例流程名分隔符（{父流程名}·{子流程节点名}） */
     private static final String SUB_NAME_SEPARATOR = "·";
 
+    /** 预览节点归属作用域：主流程 */
+    private static final String SCOPE_MAIN = "MAIN";
+
+    /** 预览节点归属作用域：子流程（由 SUB_PROCESS 节点派生） */
+    private static final String SCOPE_SUB_PROCESS = "SUB_PROCESS";
+
     private final FlowEngineSupport support;
     private final FlowApproverResolver resolver;
     private final RedissonClient redissonClient;
@@ -245,6 +251,7 @@ public class FlowEngineImpl implements FlowEngine {
     @Override
     public NextApproverVO previewNextApprovers(Long processId, String nodeId, Long currentUserId,
                                                Map<String, String> conditions) {
+        ProcessDO process = support.requirePublishedProcess(processId);
         ProcessVersionDO version = support.requirePublishedVersion(processId);
         FlowDesignCursor cursor = support.parseCursor(version.getDesignJson());
         JsonNode start;
@@ -259,7 +266,7 @@ public class FlowEngineImpl implements FlowEngine {
         }
         List<NodeApproverPreviewVO> nodes = new ArrayList<>();
         if (start != null) {
-            dryRunCollect(start, cursor, conditions, currentUserId, nodes);
+            dryRunCollect(start, cursor, conditions, currentUserId, SCOPE_MAIN, process.getName(), nodes);
         }
         NextApproverVO vo = new NextApproverVO();
         vo.setEnded(nodes.isEmpty());
@@ -297,7 +304,37 @@ public class FlowEngineImpl implements FlowEngine {
             // 下一节点为人工并行：由本审批人在 PASS 时携带 routeTargetIds 勾选要执行的分支列（多选，可指定各目标审批节点的审批人，空列回退容器后继节点）
             advanceManualParallel(next, dto.getRouteTargetIds(), dto.getRouteAssignees(), ctx);
         } else {
+            registerSubProcessAssignees(next, dto.getSubProcessAssignees(), ctx);
             advanceFrom(next, ctx.getCursor().findBranchHost(idOf(node)), ctx);
+        }
+    }
+
+    /**
+     * 子流程（IMMEDIATE）下一节点指定审批人登记：将 PASS 携带的 subProcessAssignees（nodeId → userId，
+     * 目标节点=子流程内部首节点 / 父链下一节点）写入 ctx.assigneeOverrides 供建任务时一次性消费。
+     * 父链节点的覆盖在父链 advanceFrom 推进到该节点时被 resolveApproverAndCreate 消费；
+     * 子流程节点的覆盖在 buildSubInstance 创建子上下文时被复制到子上下文消费。
+     * 仅当下一节点为子流程且 IMMEDIATE 时生效，其余场景忽略。
+     */
+    private void registerSubProcessAssignees(JsonNode next, Map<String, String> subProcessAssignees, EngineCtx ctx) {
+        if (subProcessAssignees == null || subProcessAssignees.isEmpty() || next == null
+                || !TYPE_SUB_PROCESS.equals(typeOf(next))
+                || !ADVANCE_IMMEDIATE.equals(advanceModeOf(next))) {
+            return;
+        }
+        for (Map.Entry<String, String> entry : subProcessAssignees.entrySet()) {
+            String nodeId = entry.getKey();
+            String userId = entry.getValue();
+            if (nodeId == null || nodeId.isEmpty() || userId == null || userId.isEmpty()) {
+                continue;
+            }
+            long parsed;
+            try {
+                parsed = Long.parseLong(userId);
+            } catch (NumberFormatException e) {
+                throw new BusinessException(ResultCode.TASK_RECEIVER_INVALID, "指定审批人 ID 不合法");
+            }
+            ctx.getAssigneeOverrides().put(nodeId, parsed);
         }
     }
 
@@ -750,6 +787,12 @@ public class FlowEngineImpl implements FlowEngine {
         support.insertInstance(sub);
 
         EngineCtx subCtx = support.loadCtx(sub, sub.getDesignJson());
+        // 子流程节点指定审批人：父上下文中属于子 doc 的覆盖复制到子上下文（nodeId 全局唯一，逐节点定位）
+        for (Map.Entry<String, Long> entry : parentCtx.getAssigneeOverrides().entrySet()) {
+            if (subCtx.getCursor().findNode(entry.getKey()) != null) {
+                subCtx.getAssigneeOverrides().put(entry.getKey(), entry.getValue());
+            }
+        }
         support.stageActionLog(subCtx, null, subCtx.getCursor().root(), TaskAction.START, null, null, "子流程启动");
         support.addEngineNote(parentCtx, subProcessNode, ADVANCE_WAIT.equals(advanceMode)
                 ? "进入子流程【" + nameOf(subProcessNode) + "】，等待其完成"
@@ -931,6 +974,7 @@ public class FlowEngineImpl implements FlowEngine {
      */
     private boolean dryRunCollect(JsonNode position, FlowDesignCursor cursor,
                                   Map<String, String> conditions, Long currentUserId,
+                                  String scopeType, String scopeName,
                                   List<NodeApproverPreviewVO> out) {
         JsonNode node = position;
         while (node != null) {
@@ -945,7 +989,7 @@ public class FlowEngineImpl implements FlowEngine {
                     for (JsonNode column : branchColumns(node)) {
                         JsonNode first = chainNext(column);
                         if (first != null) {
-                            dryRunCollect(first, cursor, conditions, currentUserId, out);
+                            dryRunCollect(first, cursor, conditions, currentUserId, scopeType, scopeName, out);
                         }
                     }
                     return false;
@@ -953,7 +997,7 @@ public class FlowEngineImpl implements FlowEngine {
                 JsonNode branch = cursor.selectConditionBranch(node, conditions);
                 JsonNode branchFirst = branch != null ? chainNext(branch) : null;
                 if (branchFirst != null) {
-                    boolean done = dryRunCollect(branchFirst, cursor, conditions, currentUserId, out);
+                    boolean done = dryRunCollect(branchFirst, cursor, conditions, currentUserId, scopeType, scopeName, out);
                     if (!done) {
                         return false;
                     }
@@ -966,7 +1010,7 @@ public class FlowEngineImpl implements FlowEngine {
                 for (JsonNode column : branchColumns(node)) {
                     JsonNode first = chainNext(column);
                     if (first != null) {
-                        allDone = dryRunCollect(first, cursor, conditions, currentUserId, out) && allDone;
+                        allDone = dryRunCollect(first, cursor, conditions, currentUserId, scopeType, scopeName, out) && allDone;
                     }
                 }
                 if (!allDone) {
@@ -977,16 +1021,19 @@ public class FlowEngineImpl implements FlowEngine {
             }
             if (TYPE_SUB_PROCESS.equals(type)) {
                 // 穿透语义（§4.4.7）：WAIT 节点进入 subDoc 取首个审批节点（子链走完则父流程继续 childNode）；
-                // IMMEDIATE 节点非父流程必经路径，跳过子 doc 沿父 childNode 继续模拟——与运行态路径一致
+                // IMMEDIATE 节点子实例旁路启动——其内部首组审批人同样计入下一组，父流程立即继续 childNode 模拟，
+                // 两路并行推进，与运行态（buildSubInstance 建子实例 + 继续 childNode）路径一致
                 JsonNode subDoc = propsOf(node).path(PROP_SUB_DOC);
                 boolean subDocValid = subDoc.isObject() && TYPE_START.equals(typeOf(subDoc.path("root")));
-                if (ADVANCE_WAIT.equals(advanceModeOf(node)) && subDocValid) {
+                if (subDocValid) {
                     FlowDesignCursor subCursor = FlowDesignCursor.of(subDoc);
                     boolean subDone = dryRunCollect(chainNext(subCursor.root()), subCursor, conditions,
-                            currentUserId, out);
-                    if (!subDone) {
+                            currentUserId, SCOPE_SUB_PROCESS, nameOf(node), out);
+                    if (ADVANCE_WAIT.equals(advanceModeOf(node)) && !subDone) {
+                        // WAIT：父实例等待子实例，子链命中审批节点即止；子链走完才继续父 childNode
                         return false;
                     }
+                    // IMMEDIATE：子链首组审批人已计入下一组（旁路，走完与否不影响父链），继续沿父链模拟
                 }
                 node = chainNext(node);
                 continue;
@@ -1001,6 +1048,8 @@ public class FlowEngineImpl implements FlowEngine {
             preview.setNodeId(idOf(node));
             preview.setNodeName(nameOf(node));
             preview.setMultiMode(propsOf(node).path("multiMode").asText(MULTI_OR));
+            preview.setScopeType(scopeType);
+            preview.setScopeName(scopeName);
             preview.setApprovers(resolved.getUsers().stream().map(user -> {
                 UserBriefVO brief = new UserBriefVO();
                 brief.setUserId(String.valueOf(user.getId()));

@@ -3,7 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ACTION_META, type ActionField, type ActionOption, type ActionSubmit } from './approval-actions'
 import type { AddSignDirection, ApprovalActionKey, ApprovalActionPayload } from '@/types/workflow'
-import type { PendingSignTaskVO } from '@/types/approval'
+import type { PendingSignTaskVO, SubProcessApproverOptionVO } from '@/types/approval'
 
 const props = withDefaults(
   defineProps<{
@@ -19,10 +19,12 @@ const props = withDefaults(
     manualRouteMultiple?: boolean
     /** 待办理加签任务（PASS 时非空则提示加签人未同意，可删除减签） */
     pendingSignTasks?: PendingSignTaskVO[]
+    /** 子流程下一节点可指定审批人目标（PASS 且下一节点为子流程启动后继续时非空，分开展示主/子流程审批人） */
+    subProcessApproverOptions?: SubProcessApproverOptionVO[]
     /** 提交中：锁定表单与按钮 */
     loading?: boolean
   }>(),
-  { memberOptions: () => [], nodeOptions: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, pendingSignTasks: () => [], loading: false },
+  { memberOptions: () => [], nodeOptions: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, pendingSignTasks: () => [], subProcessApproverOptions: () => [], loading: false },
 )
 
 const emit = defineEmits<{ (e: 'submit', payload: ApprovalActionPayload): void }>()
@@ -37,6 +39,9 @@ const form = reactive<ActionForm>({})
 
 /** 人工路由指定审批人（branchId → userId）：仅对所选分支中有候选审批人的分支生效，可选 */
 const routeAssignees = reactive<Record<string, string>>({})
+
+/** 子流程目标节点指定审批人（nodeId → userId）：仅对候选审批人非空的目标节点生效，可选 */
+const subProcessAssignees = reactive<Record<string, string>>({})
 
 const meta = computed(() => (props.action ? ACTION_META[props.action] : null))
 
@@ -93,6 +98,22 @@ const assigneeBranches = computed(() => {
 
 function setRouteAssignee(branchId: string, value: unknown): void {
   routeAssignees[branchId] = typeof value === 'string' ? value : ''
+}
+
+function setSubProcessAssignee(nodeId: string, value: unknown): void {
+  subProcessAssignees[nodeId] = typeof value === 'string' ? value : ''
+}
+
+/** 子流程名（PASS 弹窗标题标注用） */
+const subProcessName = computed(() =>
+  props.subProcessApproverOptions.find((opt) => opt.scopeType === 'SUB_PROCESS')?.scopeName ?? '',
+)
+
+/** 主/子流程目标节点展示标签：标「主流程「名」· 节点名」/「子流程「名」· 节点名」 */
+function subProcessNodeLabel(opt: SubProcessApproverOptionVO): string {
+  const scope = opt.scopeType === 'SUB_PROCESS' ? '子流程' : '主流程'
+  const name = opt.scopeName ? `「${opt.scopeName}」` : ''
+  return `${scope}${name} · ${opt.nodeName}`
 }
 
 /** 加签方向文案（与任务标签口径一致） */
@@ -162,6 +183,7 @@ function buildPayload(action: ApprovalActionKey, direction?: AddSignDirection): 
         routeTargetId?: string
         routeTargetIds?: string[]
         routeAssignees?: Record<string, string>
+        subProcessAssignees?: Record<string, string>
       } = {
         action: 'PASS',
         comment: text('comment'),
@@ -182,6 +204,15 @@ function buildPayload(action: ApprovalActionKey, direction?: AddSignDirection): 
         }
       }
       payload.routeAssignees = Object.keys(assignees).length > 0 ? assignees : undefined
+      // 子流程目标节点指定审批人（仅收集非空值）
+      const subAssignees: Record<string, string> = {}
+      for (const opt of props.subProcessApproverOptions) {
+        const userId = (subProcessAssignees[opt.nodeId] ?? '').trim()
+        if (userId) {
+          subAssignees[opt.nodeId] = userId
+        }
+      }
+      payload.subProcessAssignees = Object.keys(subAssignees).length > 0 ? subAssignees : undefined
       return payload
     }
     default:
@@ -196,6 +227,9 @@ function resetForm(): void {
   }
   for (const key of Object.keys(routeAssignees)) {
     delete routeAssignees[key]
+  }
+  for (const key of Object.keys(subProcessAssignees)) {
+    delete subProcessAssignees[key]
   }
   for (const field of meta.value?.fields ?? []) {
     form[field.key] = field.type === 'select' && field.multiple ? [] : ''
@@ -276,6 +310,28 @@ function beforeClose(done: () => void): void {
           <el-option v-for="opt in branch.children" :key="opt.id" :label="opt.label" :value="opt.id" />
         </el-select>
       </el-form-item>
+
+      <div v-if="meta?.key === 'PASS' && subProcessApproverOptions.length > 0" class="sub-process-assignees">
+        <div class="sub-process-assignees-title">
+          下一节点为子流程「{{ subProcessName }}」启动后继续，请设置主流程审批与子流程审批
+        </div>
+        <div v-for="opt in subProcessApproverOptions" :key="opt.nodeId" class="sub-process-assignee">
+          <div class="sub-process-assignee-label">{{ subProcessNodeLabel(opt) }}</div>
+          <el-select
+            v-if="opt.assigneeOptions.length > 0"
+            :model-value="subProcessAssignees[opt.nodeId] ?? ''"
+            placeholder="默认按节点配置审批（可选）"
+            clearable
+            filterable
+            :disabled="loading"
+            class="approval-control"
+            @update:model-value="(value: unknown) => setSubProcessAssignee(opt.nodeId, value)"
+          >
+            <el-option v-for="user in opt.assigneeOptions" :key="user.userId" :label="user.name" :value="user.userId" />
+          </el-select>
+          <div v-else class="sub-process-assignee-empty">（空审批人将自动处理）</div>
+        </div>
+      </div>
 
       <el-form-item v-for="field in meta?.fields ?? []" :key="field.key" :label="field.label" :prop="field.key">
         <div class="approval-field">
@@ -377,6 +433,40 @@ function beforeClose(done: () => void): void {
 
 .approval-control {
   width: 100%;
+}
+
+.sub-process-assignees {
+  margin-bottom: 20px;
+  padding: 10px 12px;
+  background-color: #f7f9fc;
+  border-radius: 6px;
+}
+
+.sub-process-assignees-title {
+  margin-bottom: 8px;
+  font-size: 13px;
+  line-height: 22px;
+  color: #606266;
+}
+
+.sub-process-assignee {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed #e4e7ed;
+}
+
+.sub-process-assignee-label {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 22px;
+  color: #303133;
+}
+
+.sub-process-assignee-empty {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 20px;
+  color: #909399;
 }
 
 .approval-control :deep(.el-textarea__inner) {
