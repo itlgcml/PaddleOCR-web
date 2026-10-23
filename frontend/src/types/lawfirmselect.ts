@@ -30,4 +30,6 @@ export interface LawFirmSelectSubmitDTO extends LawFirmSelectSaveDTO {
   ccUserIds?: string[]
   /** 发起备注（可选，≤512） */
   comment?: string
+  /** 发起时为第一审批阶段节点指定的审批人（nodeId → userIds，可选）：或签单元素、会签多元素；须为预览候选 */
+  startAssignees?: Record<string, string[]>
 }

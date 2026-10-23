@@ -34,11 +34,14 @@ public interface FlowEngine {
      * @param formJson     表单数据 JSON 快照（条件求值与详情展示）
      * @param ccUsers      发起抄送人（已校验），可为空
      * @param startComment 发起备注（START 日志）
+     * @param startAssignees 发起时为第一审批阶段节点指定的审批人（nodeId → userIds，可为空）：
+     *                       含 IMMEDIATE 子流程主/子双线、WAIT 穿透子 doc 首组与并行各列首组，
+     *                       userId 须为对应节点候选审批人（建任务时校验）
      * @return 实例 ID
      */
     Long startInstance(ProcessDO process, ProcessVersionDO version, String bizType, Long bizId,
                        UserDO startUser, String bizTitle, String formJson,
-                       List<UserDO> ccUsers, String startComment);
+                       List<UserDO> ccUsers, String startComment, Map<String, List<String>> startAssignees);
 
     /**
      * 统一动作处理（实例级推进锁内执行）：PASS/REJECT/RETURN/TRANSFER/DELEGATE/ADD_SIGN/COMMENT/COPY。

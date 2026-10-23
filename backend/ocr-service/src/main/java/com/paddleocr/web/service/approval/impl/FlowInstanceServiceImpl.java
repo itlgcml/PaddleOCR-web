@@ -197,7 +197,7 @@ public class FlowInstanceServiceImpl implements FlowInstanceService {
         List<UserDO> ccUsers = resolveCcUsers(dto.getCcUserIds());
         ProcessVersionDO version = support.requirePublishedVersion(process.getId());
         Long instanceId = engine.startInstance(process, version, dto.getBizType(), bizId, startUser,
-                snapshot.getTitle(), snapshot.getFormJson(), ccUsers, dto.getComment());
+                snapshot.getTitle(), snapshot.getFormJson(), ccUsers, dto.getComment(), dto.getStartAssignees());
         return String.valueOf(instanceId);
     }
 

@@ -165,6 +165,7 @@ public class LawFirmSelectServiceImpl implements LawFirmSelectService {
         startDto.setBizId(String.valueOf(bizId));
         startDto.setCcUserIds(dto.getCcUserIds());
         startDto.setComment(dto.getComment());
+        startDto.setStartAssignees(dto.getStartAssignees());
         return startDto;
     }
 

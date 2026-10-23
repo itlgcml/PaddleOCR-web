@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.TYPE_CONDITIONS;
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.TYPE_PARALLEL;
@@ -125,17 +126,18 @@ public class FlowEngineImpl implements FlowEngine {
     @Override
     public Long startInstance(ProcessDO process, ProcessVersionDO version, String bizType, Long bizId,
                               UserDO startUser, String bizTitle, String formJson,
-                              List<UserDO> ccUsers, String startComment) {
+                              List<UserDO> ccUsers, String startComment, Map<String, List<String>> startAssignees) {
         if (formJson != null && formJson.length() > properties.getSnapshotMaxLength()) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "表单快照超过长度上限");
         }
         return transactionTemplate.execute(status ->
-                doStartInstance(process, version, bizType, bizId, startUser, bizTitle, formJson, ccUsers, startComment));
+                doStartInstance(process, version, bizType, bizId, startUser, bizTitle, formJson,
+                        ccUsers, startComment, startAssignees));
     }
 
     private Long doStartInstance(ProcessDO process, ProcessVersionDO version, String bizType, Long bizId,
                                  UserDO startUser, String bizTitle, String formJson,
-                                 List<UserDO> ccUsers, String startComment) {
+                                 List<UserDO> ccUsers, String startComment, Map<String, List<String>> startAssignees) {
         FlowInstanceDO instance = new FlowInstanceDO();
         instance.setProcessId(process.getId());
         instance.setProcessCode(process.getCode());
@@ -156,11 +158,46 @@ public class FlowEngineImpl implements FlowEngine {
         EngineCtx ctx = support.loadCtx(instance, version.getDesignJson());
         support.stageActionLog(ctx, null, ctx.getCursor().root(), TaskAction.START, startUser, startComment, null);
         support.saveCc(ctx, null, ccUsers);
+        registerStartAssignees(ctx, startAssignees);
         advanceFrom(chainNext(ctx.getCursor().root()), null, ctx);
         support.flushActionLog(ctx);
         log.info("审批实例发起成功, instanceId={}, processCode={}, bizType={}, bizId={}",
                 instance.getId(), process.getCode(), bizType, bizId);
         return instance.getId();
+    }
+
+    /**
+     * 发起时指定审批人登记：将提交携带的 startAssignees（nodeId → userIds，目标=next-approvers
+     * 预览返回的第一审批阶段节点：普通首审批节点 / 并行各列首组 / IMMEDIATE 子流程主/子双线 /
+     * WAIT 穿透子 doc 首组）解析写入 ctx.assigneeOverrides，推进建任务时一次性消费（候选集校验）。
+     * 子 doc 节点的覆盖由 buildSubInstance 复制到子上下文消费；父链节点由根上下文推进消费；
+     * 不在首组阶段的 nodeId 不会被消费，残留随上下文丢弃（与 PASS 指定口径一致）。
+     */
+    private void registerStartAssignees(EngineCtx ctx, Map<String, List<String>> startAssignees) {
+        if (startAssignees == null || startAssignees.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, List<String>> entry : startAssignees.entrySet()) {
+            String nodeId = entry.getKey();
+            List<String> userIds = entry.getValue();
+            if (nodeId == null || nodeId.isEmpty() || userIds == null || userIds.isEmpty()) {
+                continue;
+            }
+            List<Long> parsed = new ArrayList<>(userIds.size());
+            for (String userId : userIds) {
+                if (userId == null || userId.isEmpty()) {
+                    continue;
+                }
+                try {
+                    parsed.add(Long.parseLong(userId));
+                } catch (NumberFormatException e) {
+                    throw new BusinessException(ResultCode.TASK_RECEIVER_INVALID, "指定审批人 ID 不合法");
+                }
+            }
+            if (!parsed.isEmpty()) {
+                ctx.getAssigneeOverrides().put(nodeId, parsed);
+            }
+        }
     }
 
     @Override
@@ -334,7 +371,7 @@ public class FlowEngineImpl implements FlowEngine {
             } catch (NumberFormatException e) {
                 throw new BusinessException(ResultCode.TASK_RECEIVER_INVALID, "指定审批人 ID 不合法");
             }
-            ctx.getAssigneeOverrides().put(nodeId, parsed);
+            ctx.getAssigneeOverrides().put(nodeId, Collections.singletonList(parsed));
         }
     }
 
@@ -429,7 +466,7 @@ public class FlowEngineImpl implements FlowEngine {
         } catch (NumberFormatException e) {
             throw new BusinessException(ResultCode.TASK_RECEIVER_INVALID, "指定审批人 ID 不合法");
         }
-        ctx.getAssigneeOverrides().putIfAbsent(idOf(firstApprover), parsed);
+        ctx.getAssigneeOverrides().putIfAbsent(idOf(firstApprover), Collections.singletonList(parsed));
     }
 
     private void doReject(FlowTaskDO task, TaskActionDTO dto, UserDO operator, EngineCtx ctx, JsonNode node) {
@@ -679,23 +716,33 @@ public class FlowEngineImpl implements FlowEngine {
 
     /**
      * 审批节点处理：解析审批人；空则按 emptyPolicy 兜底（说明记 ENGINE 日志，AUTO_PASS 落伪任务并继续推进）。
-     * 人工路由/人工并行 PASS 指定的审批人（ctx.assigneeOverrides）优先于默认解析：
-     * 须为该节点候选审批人之一，命中后仅为其创建单人任务（OR 模式）并记 ENGINE 日志。
+     * 指定审批人（ctx.assigneeOverrides：发起 startAssignees / 人工路由 routeAssignees /
+     * 子流程 subProcessAssignees 登记）优先于默认解析：每人须为该节点候选审批人之一，
+     * 命中后仅为其创建任务（或签单人选 1、会签按选择人数）并按节点 multiMode 判定，记 ENGINE 日志。
      */
     private void resolveApproverAndCreate(JsonNode node, EngineCtx ctx) {
         Resolved resolved = resolver.resolve(node, ctx.getInstance().getStartUserId());
         for (String note : resolved.getEngineNotes()) {
             support.addEngineNote(ctx, node, note);
         }
-        Long overrideUserId = ctx.getAssigneeOverrides().remove(idOf(node));
-        if (overrideUserId != null) {
-            UserDO assigned = resolved.getUsers().stream()
-                    .filter(user -> overrideUserId.equals(user.getId()))
-                    .findFirst()
-                    .orElseThrow(() -> new BusinessException(ResultCode.TASK_RECEIVER_INVALID,
-                            "指定审批人不在该节点的候选审批人范围内"));
-            support.addEngineNote(ctx, node, "人工路由指定审批人：" + FlowApproverResolver.displayName(assigned));
-            support.createTasks(ctx, node, Collections.singletonList(assigned), MULTI_OR);
+        List<Long> overrideUserIds = ctx.getAssigneeOverrides().remove(idOf(node));
+        if (overrideUserIds != null && !overrideUserIds.isEmpty()) {
+            List<UserDO> assigned = new ArrayList<>(overrideUserIds.size());
+            for (Long overrideUserId : overrideUserIds) {
+                UserDO user = resolved.getUsers().stream()
+                        .filter(item -> overrideUserId.equals(item.getId()))
+                        .findFirst()
+                        .orElseThrow(() -> new BusinessException(ResultCode.TASK_RECEIVER_INVALID,
+                                "指定审批人不在该节点的候选审批人范围内"));
+                if (assigned.stream().noneMatch(item -> item.getId().equals(user.getId()))) {
+                    assigned.add(user);
+                }
+            }
+            String multiMode = propsOf(node).path("multiMode").asText(MULTI_OR);
+            String names = assigned.stream().map(FlowApproverResolver::displayName)
+                    .collect(Collectors.joining("、"));
+            support.addEngineNote(ctx, node, "指定审批人：" + names);
+            support.createTasks(ctx, node, assigned, MULTI_AND.equals(multiMode) ? MULTI_AND : MULTI_OR);
             return;
         }
         if (!resolved.getUsers().isEmpty()) {
@@ -788,7 +835,7 @@ public class FlowEngineImpl implements FlowEngine {
 
         EngineCtx subCtx = support.loadCtx(sub, sub.getDesignJson());
         // 子流程节点指定审批人：父上下文中属于子 doc 的覆盖复制到子上下文（nodeId 全局唯一，逐节点定位）
-        for (Map.Entry<String, Long> entry : parentCtx.getAssigneeOverrides().entrySet()) {
+        for (Map.Entry<String, List<Long>> entry : parentCtx.getAssigneeOverrides().entrySet()) {
             if (subCtx.getCursor().findNode(entry.getKey()) != null) {
                 subCtx.getAssigneeOverrides().put(entry.getKey(), entry.getValue());
             }

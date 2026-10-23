@@ -317,6 +317,8 @@ export interface InstanceStartDTO {
   bizId: string
   ccUserIds?: string[]
   comment?: string
+  /** 发起时为第一审批阶段节点指定的审批人（nodeId → userIds，可选）：或签单元素、会签多元素 */
+  startAssignees?: Record<string, string[]>
 }
 
 /** 下一审批人预览查询（NextApproverQueryDTO 镜像） */

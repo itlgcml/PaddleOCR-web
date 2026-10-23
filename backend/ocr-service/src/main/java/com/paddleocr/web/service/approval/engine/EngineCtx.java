@@ -40,11 +40,13 @@ public class EngineCtx {
     /** 父实例 ID（根实例为 null；子实例指向创建它的父实例） */
     private final Long parentInstanceId;
 
-    /** 指定审批人目标节点的一次性审批人覆盖（nodeId → userId）：人工路由/人工并行 PASS 携带
-     * routeAssignees 登记（目标=列内首个审批节点，空列回退容器后继链首个审批节点，
-     * routeAssigneeTarget 口径），建任务时消费并移除（覆盖节点默认解析，单人 OR 模式），
-     * 未消费的残留随上下文丢弃 */
-    private final Map<String, Long> assigneeOverrides = new HashMap<>();
+    /** 指定审批人目标节点的一次性审批人覆盖（nodeId → userIds，支持或签单选/会签多选）：
+     * 发起 startAssignees（第一审批阶段节点，含 IMMEDIATE 子流程主/子双线与 WAIT 穿透子 doc 首组）、
+     * 人工路由/人工并行 PASS 携带 routeAssignees（目标=列内首个审批节点，空列回退容器后继链首个
+     * 审批节点，routeAssigneeTarget 口径）、子流程 PASS 携带 subProcessAssignees 登记；
+     * 建任务时消费并移除（覆盖节点默认解析，按节点 multiMode 建任务），
+     * 未消费的残留随上下文丢弃；子流程节点覆盖在 buildSubInstance 时复制到子上下文消费 */
+    private final Map<String, List<Long>> assigneeOverrides = new HashMap<>();
 
     /** 本次操作待落库的审批记录：动作先暂存，推进完成后 flushActionLog 一次性落库——
      * 每次操作（发起/办理/撤销）仅生成一条 flow_task_log */

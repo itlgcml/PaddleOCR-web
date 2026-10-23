@@ -11,6 +11,7 @@ import javax.validation.constraints.Size;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 律所选聘新增并提交审批请求 DTO：单事务内完成建单与发起，任一步失败整体回滚
@@ -54,4 +55,7 @@ public class LawFirmSelectSubmitDTO implements Serializable {
     @Schema(description = "发起备注（START 日志）", maxLength = 512)
     @Size(max = 512, message = "备注不能超过 512 个字符")
     private String comment;
+
+    @Schema(description = "发起时为第一审批阶段节点指定的审批人（nodeId → userIds，可选），口径同 InstanceStartDTO.startAssignees")
+    private Map<String, List<String>> startAssignees;
 }

@@ -170,6 +170,26 @@ function onProcessChange(): void {
   void loadPreview()
 }
 
+/** 组装发起指定审批人（nodeId → userIds）：或签取单选值、会签取多选值；仅收集非空项，空则不传 */
+function buildStartAssignees(): Record<string, string[]> | undefined {
+  const nodes = preview.value?.nodes ?? []
+  const picked: Record<string, string[]> = {}
+  for (const node of nodes) {
+    if (node.multiMode === 'AND') {
+      const userIds = andPickedMap[node.nodeId] ?? []
+      if (userIds.length > 0) {
+        picked[node.nodeId] = [...userIds]
+      }
+    } else {
+      const userId = orPickedMap[node.nodeId] ?? ''
+      if (userId) {
+        picked[node.nodeId] = [userId]
+      }
+    }
+  }
+  return Object.keys(picked).length > 0 ? picked : undefined
+}
+
 /** 确认提交：组合接口单事务原子完成建单与发起（任一失败整体回滚，不残留草稿） */
 async function onSubmit(): Promise<void> {
   const process = selectedProcess.value
@@ -183,6 +203,7 @@ async function onSubmit(): Promise<void> {
       processCode: process.code,
       ccUserIds: form.ccUserIds.length > 0 ? form.ccUserIds : undefined,
       comment: form.comment.trim() || undefined,
+      startAssignees: buildStartAssignees(),
     })
     ElMessage.success('已创建单据并提交审批')
     visible.value = false
