@@ -2,8 +2,8 @@
 import { computed, reactive, ref, watch } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ACTION_META, type ActionField, type ActionOption, type ActionSubmit } from './approval-actions'
-import type { AddSignDirection, ApprovalActionKey, ApprovalActionPayload } from '@/types/workflow'
-import type { PendingSignTaskVO, SubProcessApproverOptionVO } from '@/types/approval'
+import type { AddSignDirection, ApprovalActionKey, ApprovalActionPayload, ReturnMode } from '@/types/workflow'
+import type { PendingSignTaskVO, ReturnTargetVO, SubProcessApproverOptionVO } from '@/types/approval'
 
 const props = withDefaults(
   defineProps<{
@@ -13,6 +13,8 @@ const props = withDefaults(
     memberOptions?: ActionOption[]
     /** 退回节点下拉选项 */
     nodeOptions?: ActionOption[]
+    /** 退回目标完整选项（RETURN 时非空：目标节点候选审批人 + 多方模式，退回须指定审批人） */
+    returnTargets?: ReturnTargetVO[]
     /** 人工路由选项（PASS 且下一节点为人工路由/人工并行时非空；选中值回传） */
     manualRouteOptions?: ActionOption[]
     /** 人工路由是否多选（下一节点为人工并行时 true：多选 routeTargetIds；条件路由单选 routeTargetId） */
@@ -24,7 +26,7 @@ const props = withDefaults(
     /** 提交中：锁定表单与按钮 */
     loading?: boolean
   }>(),
-  { memberOptions: () => [], nodeOptions: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, pendingSignTasks: () => [], subProcessApproverOptions: () => [], loading: false },
+  { memberOptions: () => [], nodeOptions: () => [], returnTargets: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, pendingSignTasks: () => [], subProcessApproverOptions: () => [], loading: false },
 )
 
 const emit = defineEmits<{ (e: 'submit', payload: ApprovalActionPayload): void }>()
@@ -42,6 +44,46 @@ const routeAssignees = reactive<Record<string, string>>({})
 const subProcessAssignees = reactive<Record<string, string>>({})
 
 const meta = computed(() => ACTION_META[props.action])
+
+/** 退回方式选项：STEP=逐级审批（缺省） DIRECT=审批后直达本节点 */
+const RETURN_MODES: ReadonlyArray<{ value: ReturnMode; label: string; tip: string }> = [
+  { value: 'STEP', label: '逐级审批', tip: '退回节点审批通过后，逐级重新审批至本节点' },
+  { value: 'DIRECT', label: '审批后直达本节点', tip: '退回节点审批通过后，跳过中间节点直接回到本节点' },
+]
+
+/** 当前选中的退回目标（含候选审批人 / 多方模式；退回发起人目标无候选） */
+const selectedReturnTarget = computed(() => {
+  if (props.action !== 'RETURN') {
+    return undefined
+  }
+  const nodeId = typeof form.targetNodeId === 'string' ? form.targetNodeId : ''
+  return props.returnTargets.find((target) => target.nodeId === nodeId)
+})
+
+/** 退回目标是否须指定审批人（目标节点有候选审批人时必选） */
+const returnAssigneeRequired = computed(() => (selectedReturnTarget.value?.assigneeOptions.length ?? 0) > 0)
+
+/** 可退回目标仅发起人（唯一 START）：省略退回节点与退回方式选择——此时当前节点即首个审批节点，
+ *  中间无节点可跳，DIRECT 与 STEP 等价，固定缺省 STEP（发起人重新提交后回到本节点重新审批） */
+const onlyStartReturn = computed(() =>
+  props.action === 'RETURN' && props.returnTargets.length === 1 && !props.returnTargets[0].multiMode)
+
+/** 唯一发起人目标时自动定向（用户无选择项），目标变化时同步 */
+watch(
+  () => props.returnTargets,
+  (targets) => {
+    if (onlyStartReturn.value) {
+      form.targetNodeId = targets[0].nodeId
+    }
+  },
+  { immediate: true },
+)
+
+/** 通用字段渲染集：唯一发起人退回时隐藏退回节点选择器（已自动定向） */
+const visibleFields = computed(() =>
+  onlyStartReturn.value
+    ? (meta.value?.fields ?? []).filter((field) => field.key !== 'targetNodeId')
+    : (meta.value?.fields ?? []))
 
 const rules = computed<FormRules>(() => {
   const result: FormRules = {}
@@ -67,6 +109,10 @@ const rules = computed<FormRules>(() => {
     } else {
       result.routeTargetId = [{ required: true, message: '请选择下一步', trigger: 'change' }]
     }
+  }
+  if (props.action === 'RETURN' && returnAssigneeRequired.value) {
+    // 退回目标节点有候选审批人时必选（多选值为数组，须显式声明 type）
+    result.returnAssignees = [{ type: 'array', required: true, message: '请选择退回节点审批人', trigger: 'change' }]
   }
   return result
 })
@@ -144,6 +190,9 @@ async function onSubmit(submit: ActionSubmit): Promise<void> {
   if (!current || props.loading) {
     return
   }
+  if (onlyStartReturn.value && !form.targetNodeId) {
+    form.targetNodeId = props.returnTargets[0].nodeId
+  }
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) {
     return
@@ -169,8 +218,17 @@ function buildPayload(action: ApprovalActionKey, direction?: AddSignDirection): 
         comment: text('comment'),
         direction: direction ?? 'AFTER',
       }
-    case 'RETURN':
-      return { action: 'RETURN', targetNodeId: text('targetNodeId'), comment: text('comment') }
+    case 'RETURN': {
+      const assignees = list('returnAssignees')
+      return {
+        action: 'RETURN',
+        targetNodeId: text('targetNodeId'),
+        returnMode: form.returnMode === 'DIRECT' ? 'DIRECT' : 'STEP',
+        // 仅目标节点有候选审批人且已选择时回传（START 目标 / 空审批人节点不携带）
+        returnAssignees: returnAssigneeRequired.value && assignees.length > 0 ? assignees : undefined,
+        comment: text('comment'),
+      }
+    }
     case 'PASS': {
       const payload: {
         action: 'PASS'
@@ -231,6 +289,8 @@ function resetForm(): void {
   }
   form.routeTargetId = ''
   form.routeTargetIds = []
+  form.returnMode = 'STEP'
+  form.returnAssignees = []
   formRef.value?.clearValidate()
 }
 
@@ -319,7 +379,7 @@ defineExpose({ resetForm })
         </div>
       </div>
 
-      <el-form-item v-for="field in meta.fields" :key="field.key" :label="field.label" :prop="field.key">
+      <el-form-item v-for="field in visibleFields" :key="field.key" :label="field.label" :prop="field.key">
         <div class="approval-field">
           <div v-if="field.tip" class="approval-field-tip">{{ field.tip }}</div>
           <el-select
@@ -346,6 +406,51 @@ defineExpose({ resetForm })
           />
         </div>
       </el-form-item>
+
+      <!-- 退回：方式（逐级审批 / 审批后直达本节点）+ 目标节点审批人（有候选时必选） -->
+      <template v-if="meta.key === 'RETURN'">
+        <el-form-item v-if="onlyStartReturn" label="退回目标">
+          <div class="approval-field">
+            <div class="approval-field-tip">
+              发起人（唯一可退回目标）——提交后由发起人修改并重新提交，重新提交后回到本节点重新审批
+            </div>
+          </div>
+        </el-form-item>
+        <el-form-item v-if="!onlyStartReturn" label="退回方式" prop="returnMode">
+          <div class="approval-field">
+            <el-radio-group
+              :model-value="form.returnMode ?? 'STEP'"
+              :disabled="loading"
+              @update:model-value="(value: unknown) => onSelect('returnMode', value)"
+            >
+              <el-radio v-for="mode in RETURN_MODES" :key="mode.value" :value="mode.value">{{ mode.label }}</el-radio>
+            </el-radio-group>
+            <div class="approval-field-tip">
+              {{ RETURN_MODES.find((mode) => mode.value === (form.returnMode ?? 'STEP'))?.tip }}
+            </div>
+          </div>
+        </el-form-item>
+        <el-form-item v-if="returnAssigneeRequired" label="节点审批人" prop="returnAssignees">
+          <el-select
+            :model-value="form.returnAssignees"
+            multiple
+            filterable
+            :placeholder="selectedReturnTarget?.multiMode === 'AND'
+              ? '请选择退回节点审批人（会签：所选人员均须通过）'
+              : '请选择退回节点审批人（或签：任一人通过即可）'"
+            :disabled="loading"
+            class="approval-control"
+            @update:model-value="(value: unknown) => onSelect('returnAssignees', value)"
+          >
+            <el-option
+              v-for="user in selectedReturnTarget?.assigneeOptions ?? []"
+              :key="user.userId"
+              :label="user.name"
+              :value="user.userId"
+            />
+          </el-select>
+        </el-form-item>
+      </template>
     </el-form>
 
     <div class="approval-panel-footer">

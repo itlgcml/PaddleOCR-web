@@ -42,6 +42,15 @@ public class TaskActionDTO implements Serializable {
     @Schema(description = "退回目标节点 ID：RETURN 必填")
     private String targetNodeId;
 
+    @Schema(description = "退回方式：RETURN 可选——STEP=逐级审批(缺省，目标节点审批后逐级向前重审)/" +
+            "DIRECT=审批后直达本节点(目标节点审批通过后跳过中间节点，直接回到退回发起节点)")
+    @Pattern(regexp = "^(STEP|DIRECT)$", message = "退回方式仅支持 STEP/DIRECT")
+    private String returnMode;
+
+    @Schema(description = "退回目标节点的指定审批人 ID 集合：RETURN 且目标为审批节点（候选审批人非空）时必填，" +
+            "每人均须为 returnTargets[].assigneeOptions 内的候选审批人；目标为 START 或候选为空时不可传")
+    private List<String> returnAssignees;
+
     @Schema(description = "人工路由选中的分支列 ID：PASS 且下一节点为人工路由时必填")
     private String routeTargetId;
 

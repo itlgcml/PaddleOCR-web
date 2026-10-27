@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.paddleocr.web.common.BusinessException;
 import com.paddleocr.web.common.ResultCode;
 import com.paddleocr.web.mapper.entity.FlowInstanceDO;
+import com.paddleocr.web.mapper.entity.FlowReturnRecordDO;
 import com.paddleocr.web.mapper.entity.FlowTaskDO;
 import com.paddleocr.web.mapper.entity.ProcessDO;
 import com.paddleocr.web.mapper.entity.ProcessVersionDO;
@@ -92,6 +93,12 @@ public class FlowEngineImpl implements FlowEngine {
 
     private static final String MULTI_AND = "AND";
     private static final String MULTI_OR = "OR";
+
+    /** 退回方式：逐级审批（缺省）——退回目标节点审批通过后逐级向前重审 */
+    private static final String RETURN_MODE_STEP = "STEP";
+
+    /** 退回方式：审批后直达本节点——退回目标节点审批通过后跳过中间节点，直接回到退回发起节点 */
+    private static final String RETURN_MODE_DIRECT = "DIRECT";
 
     /** 子流程推进模式：父流程等待子实例完成后继续（缺省） */
     private static final String ADVANCE_WAIT = "WAIT";
@@ -330,6 +337,15 @@ public class FlowEngineImpl implements FlowEngine {
             return;
         }
         support.cancelOtherPendingRootTasks(ctx, task.getNodeId(), task.getId());
+        // 直达退回：刚完成的节点为 DIRECT 退回目标（含 START 重提交）时，跳过中间节点直接回到退回发起节点
+        List<JsonNode> directFromNodes = consumeDirectReturn(ctx, task.getNodeId());
+        for (JsonNode directFrom : directFromNodes) {
+            support.addEngineNote(ctx, directFrom, "退回直达，跳过中间节点");
+            resolveApproverAndCreate(directFrom, ctx);
+        }
+        if (!directFromNodes.isEmpty()) {
+            return;
+        }
         if (node == null) {
             return;
         }
@@ -473,7 +489,8 @@ public class FlowEngineImpl implements FlowEngine {
         requireComment(dto, "拒绝");
         support.requireButtonEnabled(node, "REJECT");
         support.finishTask(task, TaskStatus.REJECTED, TaskAction.REJECT, dto.getComment());
-        support.cancelPendingTasks(ctx, task.getNodeId());
+        // 与 RETURN 同口径：实例内全部剩余 PENDING 级联取消（拒绝退回/终止均不留并行其它分支残留）
+        support.cancelInstancePendingTasks(ctx.getInstance().getId());
         support.stageActionLog(ctx, task, node, TaskAction.REJECT, operator, dto.getComment(), null);
 
         JsonNode props = node == null ? null : propsOf(node);
@@ -482,11 +499,13 @@ public class FlowEngineImpl implements FlowEngine {
         if (backToStart || (rejectTargetId != null && !rejectTargetId.isEmpty())) {
             // 重来前清理在跑子实例：回到子流程之前节点时，等待中/旁路的子实例一并取消
             cancelRunningSubInstances(ctx);
+            // 拒绝退回按逐级语义推进，未消费直达记录一并重置（新退回由 doReturn 重新记录）
+            support.resetPendingReturns(ctx.getInstance().getId());
         }
         if (backToStart) {
             backToStart(ctx, "拒绝退回，发起人重新提交");
         } else if (rejectTargetId != null && !rejectTargetId.isEmpty()) {
-            JsonNode target = requireReturnTarget(ctx, rejectTargetId);
+            JsonNode target = requireReturnTarget(ctx, rejectTargetId, task.getNodeId());
             backToNode(ctx, target, "拒绝退回到【" + nameOf(target) + "】");
         } else if (isSubInstance(ctx)) {
             // 子实例拒绝终止：WAIT 向上传播终止整树，IMMEDIATE 仅终止自身子树
@@ -496,20 +515,70 @@ public class FlowEngineImpl implements FlowEngine {
         }
     }
 
+    /**
+     * 退回：目标节点（含 START=退回发起人）由退回人指定；returnAssignees 指定目标节点审批人
+     * （目标为审批节点且候选非空时必填，登记一次性覆盖由目标任务消费）；returnMode 二选一——
+     * STEP（缺省）目标节点审批通过后逐级向前重审；DIRECT 目标节点审批通过（含 START 重提交、
+     * 空审批人自动通过）后跳过中间节点直达本节点（returnContext 记录待消费上下文）。
+     * 退回是「回到过去」：实例内其余全部 PENDING 任务一并级联取消（并行其它分支/未达节点不留残留）。
+     */
     private void doReturn(FlowTaskDO task, TaskActionDTO dto, UserDO operator, EngineCtx ctx, JsonNode node) {
         requireButtonEnabledReturn(node);
         if (dto.getTargetNodeId() == null || dto.getTargetNodeId().isEmpty()) {
             throw new BusinessException(ResultCode.PARAM_ERROR, "退回目标节点不能为空");
         }
         requireComment(dto, "退回");
-        JsonNode target = requireReturnTarget(ctx, dto.getTargetNodeId());
+        String returnMode = dto.getReturnMode() == null || dto.getReturnMode().isEmpty()
+                ? RETURN_MODE_STEP : dto.getReturnMode();
+        JsonNode target = requireReturnTarget(ctx, dto.getTargetNodeId(), task.getNodeId());
         support.finishTask(task, TaskStatus.REJECTED, TaskAction.RETURN, dto.getComment());
-        support.cancelPendingTasks(ctx, task.getNodeId());
+        // 实例内全部剩余 PENDING 级联取消（含本节点或签/加签链、并行其它分支、更下游节点）
+        support.cancelInstancePendingTasks(ctx.getInstance().getId());
+        String modeLabel = RETURN_MODE_DIRECT.equals(returnMode) ? "审批后直达本节点" : "逐级审批";
         support.stageActionLog(ctx, task, node, TaskAction.RETURN, operator, dto.getComment(),
-                "退回到【" + nameOf(target) + "】");
+                "退回到【" + nameOf(target) + "】（" + modeLabel + "）");
         // 重来前清理在跑子实例：退回到子流程之前节点时，等待中/旁路的子实例一并取消
         cancelRunningSubInstances(ctx);
+        // 退回记录落库（flow_return_record 按次插入互不覆盖）：DIRECT 记 PENDING 待目标节点完成
+        // 消费直达（接力退回嵌套直达意图完整保留）；STEP 记 FINISHED 纯审计留痕。
+        // 不重置历史 PENDING——直达意图按次生效，拒绝退回（doReject）与实例终态才重置
+        support.insertReturnRecord(ctx, task.getId(), task.getNodeId(), dto.getTargetNodeId(), returnMode,
+                RETURN_MODE_DIRECT.equals(returnMode)
+                        ? FlowReturnRecordDO.STATUS_PENDING : FlowReturnRecordDO.STATUS_FINISHED);
+        registerReturnAssignees(target, dto.getReturnAssignees(), ctx);
         backToNode(ctx, target, null);
+    }
+
+    /**
+     * 退回指定审批人登记：目标为审批节点时按节点候选集校验——候选非空则 returnAssignees 必填
+     * （40069），解析写入 ctx.assigneeOverrides（建任务时逐人候选校验 40057 兜底）；候选为空
+     * 不可指定（节点按 emptyPolicy 自动通过）；目标为 START 时忽略（发起人重提交任务固定）。
+     */
+    private void registerReturnAssignees(JsonNode target, List<String> returnAssignees, EngineCtx ctx) {
+        if (TYPE_START.equals(typeOf(target))) {
+            return;
+        }
+        List<String> assignees = returnAssignees == null ? Collections.emptyList() : returnAssignees;
+        Resolved resolved = resolver.resolve(target, ctx.getInstance().getStartUserId());
+        if (resolved.getUsers().isEmpty()) {
+            if (!assignees.isEmpty()) {
+                throw new BusinessException(ResultCode.TASK_RECEIVER_INVALID,
+                        "退回目标节点无可用审批人，不支持指定审批人");
+            }
+            return;
+        }
+        if (assignees.isEmpty()) {
+            throw new BusinessException(ResultCode.TASK_RETURN_ASSIGNEE_REQUIRED);
+        }
+        List<Long> parsed = new ArrayList<>(assignees.size());
+        for (String userId : assignees) {
+            try {
+                parsed.add(Long.parseLong(userId));
+            } catch (NumberFormatException e) {
+                throw new BusinessException(ResultCode.TASK_RECEIVER_INVALID, "指定审批人 ID 不合法");
+            }
+        }
+        ctx.getAssigneeOverrides().put(idOf(target), parsed);
     }
 
     private void doTransferOrDelegate(FlowTaskDO task, TaskActionDTO dto, UserDO operator,
@@ -610,14 +679,48 @@ public class FlowEngineImpl implements FlowEngine {
     // ==================== 退回与重新提交 ====================
 
     /**
-     * 退回目标校验：必须存在于流程且位于当前节点先序路径之前（START/APPROVER）→ 否则 40056
+     * 退回目标校验：必须位于当前节点先序路径之前的 START/APPROVER（与 returnTargets 下发口径一致，
+     * API 直调不可指向并行其它分支/后续节点/容器）→ 否则 40056；fromNodeId 缺失时退化为存在性校验
      */
-    private JsonNode requireReturnTarget(EngineCtx ctx, String targetNodeId) {
-        JsonNode target = ctx.getCursor().findNode(targetNodeId);
+    private JsonNode requireReturnTarget(EngineCtx ctx, String targetNodeId, String fromNodeId) {
+        JsonNode target = null;
+        if (fromNodeId != null && !fromNodeId.isEmpty()) {
+            for (JsonNode candidate : ctx.getCursor().rejectTargetsBefore(fromNodeId)) {
+                if (targetNodeId.equals(idOf(candidate))) {
+                    target = candidate;
+                    break;
+                }
+            }
+        } else {
+            target = ctx.getCursor().findNode(targetNodeId);
+        }
         if (target == null) {
             throw new BusinessException(ResultCode.TASK_RETURN_TARGET_INVALID);
         }
         return target;
+    }
+
+    /**
+     * 直达退回消费：实例内 status=PENDING 且 target=completedNodeId 的直达记录逐条置 CONSUMED，
+     * 返回各自退回发起节点（调用方在其上重建任务=直达）。记录按次落库互不覆盖——接力退回
+     * （a1→X 后 X→Y）在 Y、X 依次完成时各自直达，嵌套意图完整保留；本期退回级联取消全实例
+     * PENDING，在途记录至多一条，列表口径为并行各自退回（预留）天然兼容。
+     * 记录指向节点不在快照时跳过该条（数据异常不阻塞推进）。
+     */
+    private List<JsonNode> consumeDirectReturn(EngineCtx ctx, String completedNodeId) {
+        List<FlowReturnRecordDO> records = support.pendingDirectReturns(ctx.getInstance().getId(), completedNodeId);
+        if (records.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<JsonNode> fromNodes = new ArrayList<>(records.size());
+        for (FlowReturnRecordDO record : records) {
+            support.markReturnConsumed(record);
+            JsonNode from = ctx.getCursor().findNode(record.getFromNodeId());
+            if (from != null) {
+                fromNodes.add(from);
+            }
+        }
+        return fromNodes;
     }
 
     /**
@@ -752,6 +855,15 @@ public class FlowEngineImpl implements FlowEngine {
         }
         support.addEngineNote(ctx, node, "节点无可用审批人，自动通过");
         support.createAutoPassedTask(ctx, node);
+        // 直达退回：目标节点空审批人自动通过即视为节点完成，直接回到退回发起节点
+        List<JsonNode> directFromNodes = consumeDirectReturn(ctx, idOf(node));
+        for (JsonNode directFrom : directFromNodes) {
+            support.addEngineNote(ctx, directFrom, "退回直达，跳过中间节点");
+            resolveApproverAndCreate(directFrom, ctx);
+        }
+        if (!directFromNodes.isEmpty()) {
+            return;
+        }
         advanceFrom(chainNext(node), ctx.getCursor().findBranchHost(idOf(node)), ctx);
     }
 

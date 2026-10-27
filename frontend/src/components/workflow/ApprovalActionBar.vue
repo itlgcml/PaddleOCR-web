@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import ApprovalActionPanel from './ApprovalActionPanel.vue'
 import { ACTION_META, ACTION_ORDER, type ActionOption } from './approval-actions'
 import type { ApprovalActionKey, ApprovalActionPayload } from '@/types/workflow'
-import type { PendingSignTaskVO, SubProcessApproverOptionVO } from '@/types/approval'
+import type { PendingSignTaskVO, ReturnTargetVO, SubProcessApproverOptionVO } from '@/types/approval'
 
 const props = withDefaults(
   defineProps<{
@@ -13,6 +13,8 @@ const props = withDefaults(
     memberOptions?: ActionOption[]
     /** 退回节点下拉选项 */
     nodeOptions?: ActionOption[]
+    /** 退回目标完整选项（RETURN 时非空：目标节点候选审批人 + 多方模式，退回须指定审批人） */
+    returnTargets?: ReturnTargetVO[]
     /** 人工路由选项（PASS 且下一节点为人工路由/人工并行时非空） */
     manualRouteOptions?: ActionOption[]
     /** 人工路由是否多选（人工并行 true） */
@@ -24,7 +26,7 @@ const props = withDefaults(
     /** 提交中：禁用按钮并锁定面板 */
     loading?: boolean
   }>(),
-  { actions: undefined, memberOptions: () => [], nodeOptions: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, pendingSignTasks: () => [], subProcessApproverOptions: () => [], loading: false },
+  { actions: undefined, memberOptions: () => [], nodeOptions: () => [], returnTargets: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, pendingSignTasks: () => [], subProcessApproverOptions: () => [], loading: false },
 )
 
 const emit = defineEmits<{ (e: 'submit', payload: ApprovalActionPayload): void }>()
@@ -32,16 +34,12 @@ const emit = defineEmits<{ (e: 'submit', payload: ApprovalActionPayload): void }
 /** 当前展开的操作；始终有一个在展示，不可收起 */
 const activeAction = ref<ApprovalActionKey | null>(null)
 
-// 默认展开第一个可用操作（PASS 在首位时即默认「通过」表单）；
-// 按钮集变化（提交成功刷新等）时，当前选中仍在列表则保持，否则回退首个
+// 始终默认展开后端返回按钮集的第一个（PASS 在首位时即默认「通过」表单）；
+// 前端不缓存用户选择：按钮集每次变化（任务详情返回、提交成功刷新等）都重置回首个。
 watch(
   () => props.actions,
   (list) => {
-    const available = list ?? ACTION_ORDER
-    if (activeAction.value && available.includes(activeAction.value)) {
-      return
-    }
-    activeAction.value = available[0] ?? null
+    activeAction.value = (list ?? ACTION_ORDER)[0] ?? null
   },
   { immediate: true },
 )
@@ -92,6 +90,7 @@ defineExpose({ reset })
         :action="activeAction"
         :member-options="memberOptions"
         :node-options="nodeOptions"
+        :return-targets="returnTargets"
         :manual-route-options="manualRouteOptions"
         :manual-route-multiple="manualRouteMultiple"
         :sub-process-approver-options="subProcessApproverOptions"

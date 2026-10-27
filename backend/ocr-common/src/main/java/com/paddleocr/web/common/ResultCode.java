@@ -117,6 +117,8 @@ public enum ResultCode {
     TASK_MANUAL_ROUTE_INVALID(40063, "人工路由目标不合法"),
     /** 减签目标任务不合法（非当前任务直接派生的 PENDING 加签任务，或已办理） */
     TASK_REDUCE_SIGN_INVALID(40064, "减签目标任务不合法或不可删除"),
+    /** 退回目标节点有候选审批人但未指定（退回须选择目标节点的审批人） */
+    TASK_RETURN_ASSIGNEE_REQUIRED(40069, "退回时必须指定目标节点审批人"),
 
     // ---- 子流程（SUB_PROCESS） ----
     /** 子流程设计不合法（subDoc 缺失/根非 START/递归校验未通过/advanceMode 非法） */

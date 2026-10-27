@@ -8,6 +8,7 @@ import com.paddleocr.web.common.BusinessException;
 import com.paddleocr.web.common.ResultCode;
 import com.paddleocr.web.mapper.FlowCcMapper;
 import com.paddleocr.web.mapper.FlowInstanceMapper;
+import com.paddleocr.web.mapper.FlowReturnRecordMapper;
 import com.paddleocr.web.mapper.FlowTaskLogMapper;
 import com.paddleocr.web.mapper.FlowTaskMapper;
 import com.paddleocr.web.mapper.ProcessMapper;
@@ -15,6 +16,7 @@ import com.paddleocr.web.mapper.ProcessVersionMapper;
 import com.paddleocr.web.mapper.UserMapper;
 import com.paddleocr.web.mapper.entity.FlowCcDO;
 import com.paddleocr.web.mapper.entity.FlowInstanceDO;
+import com.paddleocr.web.mapper.entity.FlowReturnRecordDO;
 import com.paddleocr.web.mapper.entity.FlowTaskDO;
 import com.paddleocr.web.mapper.entity.FlowTaskLogDO;
 import com.paddleocr.web.mapper.entity.ProcessDO;
@@ -69,6 +71,7 @@ public class FlowEngineSupport {
     private final FlowInstanceMapper flowInstanceMapper;
     private final FlowTaskMapper flowTaskMapper;
     private final FlowTaskLogMapper flowTaskLogMapper;
+    private final FlowReturnRecordMapper flowReturnRecordMapper;
     private final FlowCcMapper flowCcMapper;
     private final ProcessMapper processMapper;
     private final ProcessVersionMapper processVersionMapper;
@@ -437,7 +440,57 @@ public class FlowEngineSupport {
     }
 
     /**
-     * 实例终态更新（行级口径，级联终止等无上下文场景使用）
+     * 退回记录落库（flow_return_record，按次插入互不覆盖）：DIRECT 记 PENDING 待目标节点完成
+     * 消费直达（接力退回各自成记录，嵌套直达意图完整保留）；STEP 记 FINISHED（无直达语义，纯审计）。
+     * 退回指定的审批人即时落在 flow_task.assignee（退回后目标节点新建任务行），本表不再快照
+     */
+    public void insertReturnRecord(EngineCtx ctx, Long fromTaskId, String fromNodeId,
+                                   String targetNodeId, String returnMode, String status) {
+        FlowReturnRecordDO record = new FlowReturnRecordDO();
+        record.setInstanceId(ctx.getInstance().getId());
+        record.setFromTaskId(fromTaskId);
+        record.setFromNodeId(fromNodeId);
+        record.setTargetNodeId(targetNodeId);
+        record.setReturnMode(returnMode);
+        record.setStatus(status);
+        flowReturnRecordMapper.insert(record);
+    }
+
+    /**
+     * 待直达退回记录查询：实例内 status=PENDING 且 target=指定节点的记录（DIRECT 专属；
+     * 本期退回级联取消全实例 PENDING，在途至多一条，列表口径为并行各自退回预留天然兼容）
+     */
+    public List<FlowReturnRecordDO> pendingDirectReturns(Long instanceId, String targetNodeId) {
+        return flowReturnRecordMapper.selectList(new LambdaQueryWrapper<FlowReturnRecordDO>()
+                .eq(FlowReturnRecordDO::getInstanceId, instanceId)
+                .eq(FlowReturnRecordDO::getTargetNodeId, targetNodeId)
+                .eq(FlowReturnRecordDO::getStatus, FlowReturnRecordDO.STATUS_PENDING));
+    }
+
+    /**
+     * 直达退回记录消费：置 CONSUMED（目标节点完成，即将在 from 节点重建任务）
+     */
+    public void markReturnConsumed(FlowReturnRecordDO record) {
+        FlowReturnRecordDO update = new FlowReturnRecordDO();
+        update.setId(record.getId());
+        update.setStatus(FlowReturnRecordDO.STATUS_CONSUMED);
+        flowReturnRecordMapper.updateById(update);
+        record.setStatus(FlowReturnRecordDO.STATUS_CONSUMED);
+    }
+
+    /**
+     * 重置未消费直达记录（PENDING→RESET）：拒绝退回按逐级语义重走、实例终态时清理悬空记录
+     */
+    public void resetPendingReturns(Long instanceId) {
+        FlowReturnRecordDO update = new FlowReturnRecordDO();
+        update.setStatus(FlowReturnRecordDO.STATUS_RESET);
+        flowReturnRecordMapper.update(update, new LambdaQueryWrapper<FlowReturnRecordDO>()
+                .eq(FlowReturnRecordDO::getInstanceId, instanceId)
+                .eq(FlowReturnRecordDO::getStatus, FlowReturnRecordDO.STATUS_PENDING));
+    }
+
+    /**
+     * 实例终态更新（行级口径，级联终止等无上下文场景使用）；终态时清理悬空的待直达退回记录
      */
     public void finishInstance(FlowInstanceDO instance, String status) {
         FlowInstanceDO update = new FlowInstanceDO();
@@ -446,6 +499,7 @@ public class FlowEngineSupport {
         update.setFinishTime(LocalDateTime.now());
         flowInstanceMapper.updateById(update);
         instance.setStatus(status);
+        resetPendingReturns(instance.getId());
     }
 
     /**

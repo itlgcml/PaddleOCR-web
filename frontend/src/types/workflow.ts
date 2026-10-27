@@ -362,6 +362,12 @@ export type ApprovalActionKey =
   | 'CANCEL'
 
 /**
+ * 退回方式：STEP=逐级审批（退回目标节点审批通过后逐级向前重审）；
+ * DIRECT=审批后直达本节点（目标节点审批通过后跳过中间节点，直接回到退回发起节点）
+ */
+export type ReturnMode = 'STEP' | 'DIRECT'
+
+/**
  * 审批操作提交载荷：按操作类型区分字段，调用方据此请求对应接口。
  * 意见类字段统一为 `comment`（通过/拒绝/转办/委派/加签为审批意见，抄送为抄送意见，退回为退回理由，取消为取消理由）。
  */
@@ -372,5 +378,5 @@ export type ApprovalActionPayload =
   | { action: 'TRANSFER' | 'DELEGATE'; receiverId: string; comment: string }
   | { action: 'ADD_SIGN'; receiverId: string; comment: string; direction: AddSignDirection }
   | { action: 'REDUCE_SIGN'; targetTaskId: string; comment: string }
-  | { action: 'RETURN'; targetNodeId: string; comment: string }
+  | { action: 'RETURN'; targetNodeId: string; returnMode?: ReturnMode; returnAssignees?: string[]; comment: string }
   | { action: 'CANCEL'; comment: string }

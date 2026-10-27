@@ -194,6 +194,10 @@ export interface SubInstanceSummaryVO {
 export interface ReturnTargetVO {
   nodeId: string
   nodeName: string
+  /** 目标节点候选审批人（非空时退回须从中指定审批人；START 目标或空审批人节点为空列表） */
+  assigneeOptions: UserBriefVO[]
+  /** 目标节点多方模式：OR=或签 AND=会签（START 目标为 null；前端据此渲染审批人多选提示） */
+  multiMode: 'OR' | 'AND' | null
 }
 
 /** 人工路由选项（ManualRouteOptionVO 镜像，当前节点通过后需人工选择下一步时非空） */

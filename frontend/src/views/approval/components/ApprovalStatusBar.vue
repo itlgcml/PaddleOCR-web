@@ -133,6 +133,7 @@ async function onCancel(): Promise<void> {
       :actions="actions"
       :member-options="memberOptions"
       :node-options="nodeOptions"
+      :return-targets="props.returnTargets"
       :manual-route-options="routeOptions"
       :manual-route-multiple="props.manualRouteMultiple"
       :sub-process-approver-options="props.subProcessApproverOptions"

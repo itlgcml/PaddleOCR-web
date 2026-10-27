@@ -137,7 +137,8 @@ public class FlowTaskServiceImpl implements FlowTaskService {
                 vo.setButtons(passOnlyButtons(node));
             } else {
                 vo.setButtons(support.readButtons(node));
-                vo.setReturnTargets(buildReturnTargets(cursor, node, task));
+                vo.setReturnTargets(buildReturnTargets(cursor, node, task,
+                        instance == null ? null : instance.getStartUserId()));
                 vo.setManualRouteOptions(buildManualRouteOptions(node,
                         instance == null ? null : instance.getStartUserId()));
                 vo.setManualRouteMultiple(node != null && isManualParallel(chainNext(node)));
@@ -302,9 +303,12 @@ public class FlowTaskServiceImpl implements FlowTaskService {
     }
 
     /**
-     * 可退回目标：仅 APPROVER 节点且 RETURN 按钮未显式禁用时返回（对齐前端 getRejectTargets 语义）
+     * 可退回目标：仅 APPROVER 节点且 RETURN 按钮未显式禁用时返回（对齐前端 getRejectTargets 语义）。
+     * 审批节点目标附带候选审批人（assigneeOptions，退回时须从中指定审批人）与多方模式
+     * （multiMode，前端据此渲染或签/会签多选）；START 目标（退回发起人）二者为空。
      */
-    private List<ReturnTargetVO> buildReturnTargets(FlowDesignCursor cursor, JsonNode node, FlowTaskDO task) {
+    private List<ReturnTargetVO> buildReturnTargets(FlowDesignCursor cursor, JsonNode node,
+                                                    FlowTaskDO task, Long startUserId) {
         if (node == null || !TYPE_APPROVER.equals(typeOf(node))) {
             return Collections.emptyList();
         }
@@ -316,6 +320,12 @@ public class FlowTaskServiceImpl implements FlowTaskService {
             ReturnTargetVO vo = new ReturnTargetVO();
             vo.setNodeId(idOf(target));
             vo.setNodeName(nameOf(target));
+            if (TYPE_APPROVER.equals(typeOf(target))) {
+                vo.setAssigneeOptions(resolveAssignees(target, startUserId));
+                vo.setMultiMode(propsOf(target).path("multiMode").asText("OR"));
+            } else {
+                vo.setAssigneeOptions(Collections.emptyList());
+            }
             targets.add(vo);
         }
         return targets;
