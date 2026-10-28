@@ -37,6 +37,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -312,6 +313,21 @@ public class FlowEngineSupport {
         return flowTaskMapper.selectList(new LambdaQueryWrapper<FlowTaskDO>()
                 .eq(FlowTaskDO::getInstanceId, instanceId)
                 .eq(FlowTaskDO::getStatus, TaskStatus.PENDING));
+    }
+
+    /**
+     * 实例内已办结（PASSED）任务的节点 ID 集合（运行时退回目标补充口径）：或签/加签同节点
+     * 多任务按 nodeId 去重；AUTO_PASS 伪任务同为 PASSED 同口径收集；退回重走的历史任务保留
+     * ——曾被办结即事实上游
+     */
+    public Set<String> passedNodeIds(Long instanceId) {
+        Set<String> nodeIds = new LinkedHashSet<>();
+        for (FlowTaskDO task : flowTaskMapper.selectList(new LambdaQueryWrapper<FlowTaskDO>()
+                .eq(FlowTaskDO::getInstanceId, instanceId)
+                .eq(FlowTaskDO::getStatus, TaskStatus.PASSED))) {
+            nodeIds.add(task.getNodeId());
+        }
+        return nodeIds;
     }
 
     /**

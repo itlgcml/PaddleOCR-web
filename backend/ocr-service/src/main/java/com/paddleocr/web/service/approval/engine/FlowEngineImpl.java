@@ -716,13 +716,15 @@ public class FlowEngineImpl implements FlowEngine {
     // ==================== 退回与重新提交 ====================
 
     /**
-     * 退回目标校验：必须位于当前节点先序路径之前的 START/APPROVER（与 returnTargets 下发口径一致，
-     * API 直调不可指向并行其它分支/后续节点/容器）→ 否则 40056；fromNodeId 缺失时退化为存在性校验
+     * 退回目标校验：必须位于当前节点先序路径之前的 START/APPROVER，或实例内已办结且位于
+     * 上游分支列内的 APPROVER（与 returnTargets 下发口径一致，API 直调不可指向并行其它
+     * 分支/后续节点/容器）→ 否则 40056；fromNodeId 缺失时退化为存在性校验
      */
     private JsonNode requireReturnTarget(EngineCtx ctx, String targetNodeId, String fromNodeId) {
         JsonNode target = null;
         if (fromNodeId != null && !fromNodeId.isEmpty()) {
-            for (JsonNode candidate : ctx.getCursor().rejectTargetsBefore(fromNodeId)) {
+            Set<String> passedNodeIds = support.passedNodeIds(ctx.getInstance().getId());
+            for (JsonNode candidate : ctx.getCursor().rejectTargetsBefore(fromNodeId, passedNodeIds)) {
                 if (targetNodeId.equals(idOf(candidate))) {
                     target = candidate;
                     break;

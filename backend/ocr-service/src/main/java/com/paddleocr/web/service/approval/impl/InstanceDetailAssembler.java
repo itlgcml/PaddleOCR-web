@@ -13,9 +13,11 @@ import com.paddleocr.web.mapper.entity.FlowInstanceDO;
 import com.paddleocr.web.mapper.entity.FlowTaskDO;
 import com.paddleocr.web.mapper.entity.FlowTaskLogDO;
 import com.paddleocr.web.model.vo.InstanceDetailVO;
+import com.paddleocr.web.model.vo.NodeProgressVO;
 import com.paddleocr.web.model.vo.SubInstanceSummaryVO;
 import com.paddleocr.web.model.vo.TaskRecordVO;
 import com.paddleocr.web.service.approval.InstanceStatus;
+import com.paddleocr.web.service.approval.NodeProgressStatus;
 import com.paddleocr.web.service.approval.TaskStatus;
 import com.paddleocr.web.service.approval.engine.FlowApproverResolver;
 import com.paddleocr.web.service.approval.engine.FlowDesignCursor;
@@ -23,6 +25,7 @@ import com.paddleocr.web.service.approval.engine.FlowEngineSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -82,14 +85,18 @@ public class InstanceDetailAssembler {
                 .eq(FlowTaskDO::getInstanceId, instance.getId())
                 .orderByDesc(FlowTaskDO::getCreateTime));
         // 设计快照按实例口径（§4.4.6）：子实例渲染自身 subDoc，根实例渲染版本快照
-        vo.setDesignJson(support.loadDesign(instance));
+        String designJson = support.loadDesign(instance);
+        vo.setDesignJson(designJson);
         vo.setParentInstanceId(instance.getParentInstanceId() == null
                 ? null : String.valueOf(instance.getParentInstanceId()));
         // 父实例设计快照按父实例 ID 缓存：本实例名与子实例摘要共用一次解析
         Map<Long, FlowDesignCursor> parentCursorCache = new HashMap<>(2);
         vo.setSubProcessName(subProcessNameOf(instance, parentCursorCache));
-        vo.setSubInstances(buildSubInstances(instance.getId(), parentCursorCache));
+        // 子实例列表一次查询：子流程摘要卡片与节点进度（SUB_PROCESS 状态映射）共用
+        List<FlowInstanceDO> subInstances = listSubInstances(instance.getId());
+        vo.setSubInstances(buildSubInstances(subInstances, parentCursorCache));
         vo.setRecords(buildRecords(instance.getId()));
+        vo.setNodeProgress(buildNodeProgress(instance, designJson, tasks, subInstances));
         vo.setMyPendingTaskId(tasks.stream()
                 .filter(task -> userId.equals(task.getAssigneeId()) && TaskStatus.PENDING.equals(task.getStatus()))
                 .map(FlowTaskDO::getId)
@@ -199,13 +206,19 @@ public class InstanceDetailAssembler {
     }
 
     /**
-     * 本实例直接派生的子流程实例摘要（按创建时间升序；无子实例时为空列表）
+     * 本实例直接派生的子流程实例（按创建时间升序；无子实例时为空列表）
      */
-    private List<SubInstanceSummaryVO> buildSubInstances(Long instanceId,
-                                                         Map<Long, FlowDesignCursor> parentCursorCache) {
-        List<FlowInstanceDO> subs = flowInstanceMapper.selectList(new LambdaQueryWrapper<FlowInstanceDO>()
+    private List<FlowInstanceDO> listSubInstances(Long instanceId) {
+        return flowInstanceMapper.selectList(new LambdaQueryWrapper<FlowInstanceDO>()
                 .eq(FlowInstanceDO::getParentInstanceId, instanceId)
                 .orderByAsc(FlowInstanceDO::getCreateTime));
+    }
+
+    /**
+     * 子流程实例摘要组装（子实例列表与节点进度共用一次查询，按创建时间升序）
+     */
+    private List<SubInstanceSummaryVO> buildSubInstances(List<FlowInstanceDO> subs,
+                                                         Map<Long, FlowDesignCursor> parentCursorCache) {
         List<SubInstanceSummaryVO> result = new ArrayList<>(subs.size());
         for (FlowInstanceDO sub : subs) {
             SubInstanceSummaryVO vo = new SubInstanceSummaryVO();
@@ -219,6 +232,146 @@ public class InstanceDetailAssembler {
             result.add(vo);
         }
         return result;
+    }
+
+    // ==================== 节点进度（流程图页签） ====================
+
+    /**
+     * 节点进度组装：遍历设计快照先序全部节点，办理类节点（START/APPROVER/TRANSACT/SUB_PROCESS）
+     * 按 flow_task 实时任务集判定——PENDING 任务=进行中、PASSED（含 AUTO_PASS 伪任务）=已走过、
+     * 最新任务 REJECTED=已拒绝、无任务=未开始；START 发起即走过（退回发起人重建任务时由 PENDING
+     * 规则覆盖为进行中）；TRANSACT 为引擎直通节点不建任务，恒按未开始近似（运行态不停留）；
+     * SUB_PROCESS 按子实例状态映射（父实例在该节点无任务）。分支容器/分支列不下发，前端由列内
+     * 节点状态聚合列视觉。快照不可解析时返回空列表（流程图页签降级为纯结构展示）
+     */
+    private List<NodeProgressVO> buildNodeProgress(FlowInstanceDO instance, String designJson,
+                                                   List<FlowTaskDO> tasks, List<FlowInstanceDO> subInstances) {
+        FlowDesignCursor cursor = support.parseCursorQuietly(designJson);
+        if (cursor == null) {
+            return Collections.emptyList();
+        }
+        Map<String, List<FlowTaskDO>> tasksByNode = new HashMap<>(tasks.size() * 2);
+        for (FlowTaskDO task : tasks) {
+            tasksByNode.computeIfAbsent(task.getNodeId(), key -> new ArrayList<>()).add(task);
+        }
+        // 子实例按父流程节点 ID 归位（列表 createTime 升序，覆盖取最新）
+        Map<String, FlowInstanceDO> latestSubByNode = new HashMap<>(4);
+        for (FlowInstanceDO sub : subInstances) {
+            latestSubByNode.put(sub.getParentNodeId(), sub);
+        }
+        boolean running = InstanceStatus.RUNNING.equals(instance.getStatus());
+        List<NodeProgressVO> result = new ArrayList<>();
+        for (JsonNode node : cursor.preorder()) {
+            String type = FlowDesignCursor.typeOf(node);
+            if (isProgressNode(type)) {
+                String nodeId = FlowDesignCursor.idOf(node);
+                result.add(buildProgressOf(node, type, tasksByNode.get(nodeId), latestSubByNode.get(nodeId), running));
+            }
+        }
+        return result;
+    }
+
+    /** 是否进度载体节点（分支容器/分支列不单独立状态） */
+    private boolean isProgressNode(String type) {
+        return FlowDesignCursor.TYPE_START.equals(type)
+                || FlowDesignCursor.TYPE_APPROVER.equals(type)
+                || FlowDesignCursor.TYPE_TRANSACT.equals(type)
+                || FlowDesignCursor.TYPE_SUB_PROCESS.equals(type);
+    }
+
+    /**
+     * 单节点进度判定：nodeTasks 为该节点全部任务（按 createTime 降序，组内首位即最新）。
+     * 退回重走场景节点同时存在历史 PASSED 与新建 PENDING，PENDING 优先判进行中
+     */
+    private NodeProgressVO buildProgressOf(JsonNode node, String type, List<FlowTaskDO> nodeTasks,
+                                           FlowInstanceDO subInstance, boolean running) {
+        NodeProgressVO vo = new NodeProgressVO();
+        vo.setNodeId(FlowDesignCursor.idOf(node));
+        vo.setNodeName(FlowDesignCursor.nameOf(node));
+        vo.setNodeType(type);
+        if (FlowDesignCursor.TYPE_SUB_PROCESS.equals(type)) {
+            fillSubProcessProgress(vo, subInstance);
+            return vo;
+        }
+        if (nodeTasks == null || nodeTasks.isEmpty()) {
+            // START 发起即走过（无任务口径）；其余无任务（含 TRANSACT 直通节点）视为未开始
+            vo.setStatus(FlowDesignCursor.TYPE_START.equals(type)
+                    ? NodeProgressStatus.PASSED : NodeProgressStatus.PENDING);
+            vo.setAssigneeNames(Collections.emptyList());
+            return vo;
+        }
+        boolean hasPending = false;
+        LinkedHashSet<String> passedNames = new LinkedHashSet<>();
+        LocalDateTime finishTime = null;
+        for (FlowTaskDO task : nodeTasks) {
+            if (TaskStatus.PENDING.equals(task.getStatus())) {
+                hasPending = true;
+            } else if (TaskStatus.PASSED.equals(task.getStatus())) {
+                passedNames.add(task.getAssigneeName());
+                if (finishTime == null) {
+                    finishTime = task.getFinishTime();
+                }
+            }
+        }
+        if (hasPending && running) {
+            vo.setStatus(NodeProgressStatus.CURRENT);
+            vo.setAssigneeNames(nodeTasks.stream()
+                    .filter(task -> TaskStatus.PENDING.equals(task.getStatus()))
+                    .map(FlowTaskDO::getAssigneeName)
+                    .distinct()
+                    .collect(Collectors.toList()));
+            return vo;
+        }
+        FlowTaskDO latest = nodeTasks.get(0);
+        if (TaskStatus.REJECTED.equals(latest.getStatus())) {
+            vo.setStatus(NodeProgressStatus.REJECTED);
+            vo.setAssigneeNames(Collections.emptyList());
+            vo.setFinishTime(latest.getFinishTime());
+            return vo;
+        }
+        if (!passedNames.isEmpty()) {
+            vo.setStatus(NodeProgressStatus.PASSED);
+            vo.setAssigneeNames(new ArrayList<>(passedNames));
+            vo.setFinishTime(finishTime);
+            return vo;
+        }
+        // 仅剩被级联取消的任务（退回/拒绝时下游清场）：节点从未真实办理，视为未开始
+        vo.setStatus(NodeProgressStatus.PENDING);
+        vo.setAssigneeNames(Collections.emptyList());
+        return vo;
+    }
+
+    /**
+     * 子流程节点进度映射：父实例在 SUB_PROCESS 节点无任务（WAIT 等待/IMMEDIATE 旁路均由子实例承载），
+     * 状态取最新子实例——RUNNING=进行中、COMPLETED=已走过、REJECTED=已拒绝、CANCELED=已取消
+     * （退回重走时旧子实例取消、新子实例运行，取最新天然正确）；无子实例=未开始。
+     * 附子实例 ID 供前端跳转子实例详情
+     */
+    private void fillSubProcessProgress(NodeProgressVO vo, FlowInstanceDO subInstance) {
+        vo.setAssigneeNames(Collections.emptyList());
+        if (subInstance == null) {
+            vo.setStatus(NodeProgressStatus.PENDING);
+            return;
+        }
+        switch (subInstance.getStatus()) {
+            case InstanceStatus.RUNNING:
+                vo.setStatus(NodeProgressStatus.CURRENT);
+                break;
+            case InstanceStatus.COMPLETED:
+                vo.setStatus(NodeProgressStatus.PASSED);
+                break;
+            case InstanceStatus.REJECTED:
+                vo.setStatus(NodeProgressStatus.REJECTED);
+                break;
+            case InstanceStatus.CANCELED:
+                vo.setStatus(NodeProgressStatus.CANCELED);
+                break;
+            default:
+                vo.setStatus(NodeProgressStatus.PENDING);
+                break;
+        }
+        vo.setFinishTime(subInstance.getFinishTime());
+        vo.setSubInstanceId(String.valueOf(subInstance.getId()));
     }
 
     /**

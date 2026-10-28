@@ -76,6 +76,9 @@ public class InstanceDetailVO implements Serializable {
     @Schema(description = "审批记录时间线")
     private List<TaskRecordVO> records;
 
+    @Schema(description = "节点进度列表（流程图页签：按设计快照办理类节点标记走过/进行中/未开始）")
+    private List<NodeProgressVO> nodeProgress;
+
     @Schema(description = "当前用户在该实例的待办任务 ID（无则 null）")
     private String myPendingTaskId;
 

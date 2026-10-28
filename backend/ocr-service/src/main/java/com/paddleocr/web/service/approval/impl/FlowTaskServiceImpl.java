@@ -309,7 +309,8 @@ public class FlowTaskServiceImpl implements FlowTaskService {
     }
 
     /**
-     * 可退回目标：仅 APPROVER 节点且 RETURN 按钮未显式禁用时返回（对齐前端 getRejectTargets 语义）。
+     * 可退回目标：仅 APPROVER 节点且 RETURN 按钮未显式禁用时返回（对齐前端 getRejectTargets 语义，
+     * 运行时口径另补实例内已办结的上游分支列内 APPROVER——条件路由走过的列内节点是事实上游）。
      * 审批节点目标附带候选审批人（assigneeOptions，退回时须从中指定审批人）与多方模式
      * （multiMode，前端据此渲染或签/会签多选）；START 目标（退回发起人）二者为空。
      */
@@ -321,8 +322,9 @@ public class FlowTaskServiceImpl implements FlowTaskService {
         if (support.isButtonDisabled(node, ACTION_RETURN)) {
             return Collections.emptyList();
         }
+        Set<String> passedNodeIds = support.passedNodeIds(task.getInstanceId());
         List<ReturnTargetVO> targets = new ArrayList<>();
-        for (JsonNode target : cursor.rejectTargetsBefore(task.getNodeId())) {
+        for (JsonNode target : cursor.rejectTargetsBefore(task.getNodeId(), passedNodeIds)) {
             ReturnTargetVO vo = new ReturnTargetVO();
             vo.setNodeId(idOf(target));
             vo.setNodeName(nameOf(target));

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -239,24 +240,92 @@ public final class FlowDesignCursor {
     }
 
     /**
-     * 退回目标集合：从根到 nodeId 的唯一路径上先于它的 START/APPROVER 节点（对齐前端 getRejectTargets
-     * 语义）。路径外分支列内的节点不算上游——并行兄弟分支与未选条件列不可作为退回目标；nodeId 不在树内返回空集
+     * 退回目标集合（静态设计口径）：从根到 nodeId 的唯一路径上先于它的 START/APPROVER 节点
+     * （对齐前端 getRejectTargets 语义）。路径外分支列内的节点不算上游——并行兄弟分支与
+     * 未选条件列不可作为退回目标；nodeId 不在树内返回空集
      */
     public List<JsonNode> rejectTargetsBefore(String nodeId) {
+        return rejectTargetsBefore(nodeId, null);
+    }
+
+    /**
+     * 退回目标集合（运行时口径）：静态路径目标之上，补入实例内已办结（passedNodeIds，含
+     * AUTO_PASS 伪任务与退回重走的历史任务）且位于当前节点上游分支列内的 APPROVER——
+     * 条件路由已走过的列内节点是事实上游，而静态路径不进分支列（分支容器后继主干上的
+     * 节点其 trail 不含任何条件列），不补则「分支后节点退回已走过的列内审批节点」永远缺失。
+     * 当前节点处于某分支列内时，同宿主容器的其它列（并行兄弟分支）不补（对齐 2026-10-26 口径）。
+     * 结果统一按设计先序排序（目标下拉按流程方向展示）
+     */
+    public List<JsonNode> rejectTargetsBefore(String nodeId, Set<String> passedNodeIds) {
         List<JsonNode> targets = new ArrayList<>();
         List<JsonNode> trail = new ArrayList<>();
-        if (findTrail(root, nodeId, trail)) {
-            for (JsonNode node : trail) {
-                if (nodeId.equals(idOf(node))) {
-                    break;
+        if (!findTrail(root, nodeId, trail)) {
+            return targets;
+        }
+        Set<String> trailIds = new LinkedHashSet<>();
+        for (JsonNode node : trail) {
+            trailIds.add(idOf(node));
+        }
+        // 当前节点所处最内层分支容器：其内其它列（并行兄弟分支）不算上游
+        BranchHost currentHost = findBranchHost(nodeId);
+        String currentHostId = currentHost == null ? null : idOf(currentHost.getContainer());
+        Set<String> collected = new LinkedHashSet<>();
+        for (JsonNode node : trail) {
+            if (nodeId.equals(idOf(node))) {
+                break;
+            }
+            String type = typeOf(node);
+            if (TYPE_START.equals(type) || TYPE_APPROVER.equals(type)) {
+                targets.add(node);
+                collected.add(idOf(node));
+            }
+        }
+        if (passedNodeIds != null && !passedNodeIds.isEmpty()) {
+            for (String passedId : passedNodeIds) {
+                if (passedId == null || passedId.isEmpty()
+                        || passedId.equals(nodeId) || collected.contains(passedId)) {
+                    continue;
                 }
-                String type = typeOf(node);
-                if (TYPE_START.equals(type) || TYPE_APPROVER.equals(type)) {
-                    targets.add(node);
+                JsonNode passed = findNode(passedId);
+                if (passed == null || !TYPE_APPROVER.equals(typeOf(passed))) {
+                    continue;
+                }
+                if (isPassedBranchUpstream(passedId, trailIds, currentHostId)) {
+                    targets.add(passed);
+                    collected.add(passedId);
                 }
             }
         }
+        if (targets.size() > 1) {
+            Map<String, Integer> order = new HashMap<>();
+            List<JsonNode> sequence = preorder();
+            for (int i = 0; i < sequence.size(); i++) {
+                order.put(idOf(sequence.get(i)), i);
+            }
+            targets.sort(Comparator.comparingInt(node -> order.getOrDefault(idOf(node), Integer.MAX_VALUE)));
+        }
         return targets;
+    }
+
+    /**
+     * 已办结节点是否位于当前节点上游分支列内：自内向外沿宿主容器链找首个位于静态路径
+     * （trail）上的容器，且该容器不是当前节点自身所处容器（并行兄弟分支不算上游）；
+     * 宿主链穷尽仍不在路径上（主干或旁支节点）返回 false
+     */
+    private boolean isPassedBranchUpstream(String passedNodeId, Set<String> trailIds, String currentHostId) {
+        String cursorId = passedNodeId;
+        while (cursorId != null && !cursorId.isEmpty()) {
+            BranchHost host = findBranchHost(cursorId);
+            if (host == null) {
+                return false;
+            }
+            String containerId = idOf(host.getContainer());
+            if (trailIds.contains(containerId)) {
+                return !containerId.equals(currentHostId);
+            }
+            cursorId = containerId;
+        }
+        return false;
     }
 
     /**

@@ -144,6 +144,23 @@ export interface TaskRecordVO {
   createTime: string
 }
 
+/** 节点进度状态：PASSED=已走过 CURRENT=进行中 REJECTED=已拒绝 CANCELED=已取消 PENDING=未开始 */
+export type NodeProgressStatus = 'PASSED' | 'CURRENT' | 'REJECTED' | 'CANCELED' | 'PENDING'
+
+/** 流程节点进度项（镜像后端 com.paddleocr.web.model.vo.NodeProgressVO） */
+export interface NodeProgressVO {
+  nodeId: string
+  nodeName: string
+  /** START/APPROVER/TRANSACT/SUB_PROCESS（分支容器与分支列不下发，由列内节点状态聚合） */
+  nodeType: string
+  status: NodeProgressStatus
+  /** CURRENT=当前待办人（含加签链）；PASSED=历史办理人 */
+  assigneeNames: string[]
+  finishTime: string | null
+  /** SUB_PROCESS 节点对应最新子实例 ID（无子实例为 null） */
+  subInstanceId: string | null
+}
+
 /** 实例详情（InstanceDetailVO 镜像） */
 export interface InstanceDetailVO {
   id: string
@@ -164,6 +181,8 @@ export interface InstanceDetailVO {
   /** 版本快照 WorkflowDoc JSON */
   designJson: string | null
   records: TaskRecordVO[]
+  /** 节点进度列表（流程图页签：走过/进行中/未开始标记） */
+  nodeProgress: NodeProgressVO[]
   /** 当前用户在该实例的待办任务 ID（无则 null） */
   myPendingTaskId: string | null
   /** 当前用户是否可撤销（=发起人 且 RUNNING） */

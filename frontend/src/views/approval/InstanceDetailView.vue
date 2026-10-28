@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import { ArrowLeft } from '@element-plus/icons-vue'
 import ApprovalStatusBar from './components/ApprovalStatusBar.vue'
 import BizFormSnapshot from './components/BizFormSnapshot.vue'
+import FlowProgressTree from './components/FlowProgressTree.vue'
 import InstanceTimeline from './components/InstanceTimeline.vue'
 import {
   fetchInstanceDetail,
@@ -38,6 +39,8 @@ const routeCcId = computed(() => {
 
 const loading = ref(false)
 const submitting = ref(false)
+/** 详情页签：审批详情 / 流程图（审批流程树进度） */
+const activeTab = ref('detail')
 /** 办理视角数据（query.taskId 或 myPendingTaskId 自动加载） */
 const taskDetail = shallowRef<TaskDetailVO | null>(null)
 /** 基础详情（办理视角时取 taskDetail，否则实例详情） */
@@ -221,37 +224,52 @@ function goParent(): void {
         <span class="task-tip">该任务由你办理，处理完成后流程自动推进</span>
       </div>
 
-      <div class="detail-grid">
-        <div class="grid-main">
-          <el-card shadow="never" class="detail-card">
-            <template #header><span class="card-title">业务内容</span></template>
-            <BizFormSnapshot :biz-type="detail.bizType" :form-json="detail.formSnapshotJson" />
-          </el-card>
-        </div>
-        <div class="grid-side">
-          <el-card v-if="detail.subInstances?.length" shadow="never" class="detail-card">
-            <template #header><span class="card-title">子流程实例</span></template>
-            <div class="sub-instance-list">
-              <div
-                v-for="sub in detail.subInstances"
-                :key="sub.id"
-                class="sub-instance-item"
-                @click="goInstance(sub.id)"
-              >
-                <span class="sub-instance-name">{{ sub.name }}</span>
-                <el-tag v-if="sub.advanceMode === 'IMMEDIATE'" size="small" effect="plain">旁路</el-tag>
-                <el-tag :type="statusMeta(sub.status).type" size="small" effect="light">
-                  {{ statusMeta(sub.status).label }}
-                </el-tag>
-              </div>
+      <el-tabs v-model="activeTab" class="detail-tabs">
+        <el-tab-pane label="审批详情" name="detail">
+          <div class="detail-grid">
+            <div class="grid-main">
+              <el-card shadow="never" class="detail-card">
+                <template #header><span class="card-title">业务内容</span></template>
+                <BizFormSnapshot :biz-type="detail.bizType" :form-json="detail.formSnapshotJson" />
+              </el-card>
             </div>
-          </el-card>
+            <div class="grid-side">
+              <el-card v-if="detail.subInstances?.length" shadow="never" class="detail-card">
+                <template #header><span class="card-title">子流程实例</span></template>
+                <div class="sub-instance-list">
+                  <div
+                    v-for="sub in detail.subInstances"
+                    :key="sub.id"
+                    class="sub-instance-item"
+                    @click="goInstance(sub.id)"
+                  >
+                    <span class="sub-instance-name">{{ sub.name }}</span>
+                    <el-tag v-if="sub.advanceMode === 'IMMEDIATE'" size="small" effect="plain">旁路</el-tag>
+                    <el-tag :type="statusMeta(sub.status).type" size="small" effect="light">
+                      {{ statusMeta(sub.status).label }}
+                    </el-tag>
+                  </div>
+                </div>
+              </el-card>
+              <el-card shadow="never" class="detail-card">
+                <template #header><span class="card-title">审批记录</span></template>
+                <InstanceTimeline :records="detail.records" />
+              </el-card>
+            </div>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="流程图" name="flow">
           <el-card shadow="never" class="detail-card">
-            <template #header><span class="card-title">审批记录</span></template>
-            <InstanceTimeline :records="detail.records" />
+            <template #header><span class="card-title">审批流程树</span></template>
+            <FlowProgressTree
+              :design-json="detail.designJson"
+              :progress="detail.nodeProgress ?? []"
+              @open-sub="goInstance"
+            />
           </el-card>
-        </div>
-      </div>
+        </el-tab-pane>
+      </el-tabs>
     </template>
 
     <el-empty v-else-if="!loading" description="实例不存在或无权查看" />
@@ -263,6 +281,18 @@ function goParent(): void {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.detail-tabs :deep(.el-tabs__header) {
+  margin-bottom: 16px;
+  padding: 0 16px;
+  background-color: #ffffff;
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+}
+
+.detail-tabs :deep(.el-tabs__content) {
+  overflow: visible;
 }
 
 .detail-header {
