@@ -37,6 +37,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.TYPE_APPROVER;
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.TYPE_CONDITIONS;
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.TYPE_PARALLEL;
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.TYPE_START;
@@ -357,6 +358,7 @@ public class FlowEngineImpl implements FlowEngine {
             // 下一节点为人工并行：由本审批人在 PASS 时携带 routeTargetIds 勾选要执行的分支列（多选，可指定各目标审批节点的审批人，空列回退容器后继节点）
             advanceManualParallel(next, dto.getRouteTargetIds(), dto.getRouteAssignees(), ctx);
         } else {
+            registerNextAssignees(node, dto.getNextAssignees(), ctx);
             registerSubProcessAssignees(next, dto.getSubProcessAssignees(), ctx);
             advanceFrom(next, ctx.getCursor().findBranchHost(idOf(node)), ctx);
         }
@@ -388,6 +390,41 @@ public class FlowEngineImpl implements FlowEngine {
                 throw new BusinessException(ResultCode.TASK_RECEIVER_INVALID, "指定审批人 ID 不合法");
             }
             ctx.getAssigneeOverrides().put(nodeId, Collections.singletonList(parsed));
+        }
+    }
+
+    /**
+     * 下一节点（普通审批节点）指定审批人登记：将 PASS 携带的 nextAssignees 写入 ctx.assigneeOverrides
+     * 供建任务时一次性消费（候选逐人校验与按节点 multiMode 建任务在 resolveApproverAndCreate 消费端
+     * 统一处理，与 startAssignees/routeAssignees 同口径）。目标落点=链后继穿透落点（nextApproverTarget：
+     * 穿透直通办理节点 TRANSACT，分支列尾经容器汇合后继链定位），与任务详情 nextApproverOptions 下发
+     * 口径一致；落点非审批节点（分支容器/子流程/链尾）时不登记，指定值静默忽略——下发侧本就为空，
+     * 直调越权指向其它节点无效。分支列尾经容器汇合时由本次 PASS 触发的推进在同一操作内消费；
+     * 容器尚未汇合（并行兄弟分支未走完）时下发侧不开放，登记残留随上下文丢弃（无副作用）。
+     */
+    private void registerNextAssignees(JsonNode node, List<String> nextAssignees, EngineCtx ctx) {
+        if (nextAssignees == null || nextAssignees.isEmpty()) {
+            return;
+        }
+        JsonNode target = ctx.getCursor().nextApproverTarget(node, null);
+        if (target == null) {
+            return;
+        }
+        List<Long> parsedIds = new ArrayList<>(nextAssignees.size());
+        for (String userId : nextAssignees) {
+            if (userId == null || userId.isEmpty()) {
+                continue;
+            }
+            long parsed;
+            try {
+                parsed = Long.parseLong(userId);
+            } catch (NumberFormatException e) {
+                throw new BusinessException(ResultCode.TASK_RECEIVER_INVALID, "指定审批人 ID 不合法");
+            }
+            parsedIds.add(parsed);
+        }
+        if (!parsedIds.isEmpty()) {
+            ctx.getAssigneeOverrides().put(idOf(target), parsedIds);
         }
     }
 

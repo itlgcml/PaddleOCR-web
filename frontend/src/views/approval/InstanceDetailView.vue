@@ -195,6 +195,7 @@ function goParent(): void {
         :manual-route-options="actionableTask?.manualRouteOptions ?? []"
         :manual-route-multiple="actionableTask?.manualRouteMultiple ?? false"
         :sub-process-approver-options="actionableTask?.subProcessApproverOptions ?? []"
+        :next-approver-options="actionableTask?.nextApproverOptions ?? []"
         :pending-sign-tasks="actionableTask?.pendingSignTasks ?? []"
         :can-cancel="detail.canCancel"
         :loading="submitting"

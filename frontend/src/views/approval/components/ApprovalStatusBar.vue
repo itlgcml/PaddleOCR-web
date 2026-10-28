@@ -6,7 +6,7 @@ import { fetchPrincipalUsers } from '@/api/approval-runtime'
 import type { PrincipalOption } from '@/composables/usePrincipalOptions'
 import type { ApprovalActionKey, ApprovalActionPayload } from '@/types/workflow'
 import type { ApproverButtonVO, ReturnTargetVO, TaskActionPayload } from '@/api/approval-runtime'
-import type { ManualRouteOptionVO, PendingSignTaskVO, SubProcessApproverOptionVO } from '@/types/approval'
+import type { ManualRouteOptionVO, NextApproverOptionVO, PendingSignTaskVO, SubProcessApproverOptionVO } from '@/types/approval'
 
 /**
  * 运行态操作栏：节点按钮快照 → ApprovalActionKey 列表（COMMENT/COPY 恒可用，与后端口径一致）；
@@ -19,6 +19,7 @@ const props = defineProps<{
   manualRouteOptions: ManualRouteOptionVO[]
   manualRouteMultiple: boolean
   subProcessApproverOptions: SubProcessApproverOptionVO[]
+  nextApproverOptions: NextApproverOptionVO[]
   pendingSignTasks: PendingSignTaskVO[]
   canCancel: boolean
   loading: boolean
@@ -137,6 +138,7 @@ async function onCancel(): Promise<void> {
       :manual-route-options="routeOptions"
       :manual-route-multiple="props.manualRouteMultiple"
       :sub-process-approver-options="props.subProcessApproverOptions"
+      :next-approver-options="props.nextApproverOptions"
       :pending-sign-tasks="props.pendingSignTasks"
       :loading="props.loading"
       @submit="onSubmit"

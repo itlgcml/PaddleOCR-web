@@ -226,6 +226,18 @@ export interface SubProcessApproverOptionVO {
   assigneeOptions: UserBriefVO[]
 }
 
+/** 下一节点可指定审批人目标（NextApproverOptionVO 镜像，当前节点链后继为普通审批节点时非空，单元素） */
+export interface NextApproverOptionVO {
+  /** 目标审批节点 ID（引擎按该节点登记并消费指定审批人，无需回传 nodeId） */
+  nodeId: string
+  /** 目标审批节点名称 */
+  nodeName: string
+  /** 多方模式：OR=或签 AND=会签（前端据此渲染单选/多选） */
+  multiMode: 'OR' | 'AND'
+  /** 候选审批人（非空时 PASS 弹窗渲染「下一节点审批人」选择，选定值经 nextAssignees 回传） */
+  assigneeOptions: UserBriefVO[]
+}
+
 /** 待办理加签任务（PendingSignTaskVO 镜像：同意前提示加签人未审，可删除减签） */
 export interface PendingSignTaskVO {
   /** 加签任务 ID，REDUCE_SIGN 时作为 targetTaskId 回传 */
@@ -251,6 +263,8 @@ export interface TaskDetailVO extends InstanceDetailVO {
   manualRouteMultiple: boolean
   /** 下一节点为子流程（启动后继续）时可指定审批人目标（子流程首节点 + 父链下一节点，PASS 弹窗分开展示并可分别指定） */
   subProcessApproverOptions: SubProcessApproverOptionVO[]
+  /** 下一节点（普通审批节点，穿透直通办理节点）可指定审批人目标（单元素，PASS 弹窗渲染「下一节点审批人」选择；与人工路由/子流程选项按链后继类型互斥） */
+  nextApproverOptions: NextApproverOptionVO[]
   /** 当前任务直接派生且 PENDING 的加签任务：非空时同意弹窗提示「加签人还没有同意」并提供删除减签 */
   pendingSignTasks: PendingSignTaskVO[]
   /** 当前用户=assignee 且任务 PENDING */

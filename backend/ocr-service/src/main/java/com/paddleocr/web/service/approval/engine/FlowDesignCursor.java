@@ -123,6 +123,37 @@ public final class FlowDesignCursor {
     }
 
     /**
+     * 链后继穿透落点（「下一节点审批人」指定口径）：从 from 的链后继出发跳过直通办理节点
+     * （TRANSACT，引擎推进不建任务）；from 为分支列尾（childNode 空）时逐层向外汇合——
+     * 嵌套分支取宿主容器后继继续（与引擎 tryMergeParallel 完成容器后 advance 容器 childNode
+     * 的流转落点一致，途经容器收集入 passedHosts 供下发侧汇合判定，可传 null 不收集）；
+     * 遇审批节点（APPROVER）返回；遇分支容器/子流程（后续走向由容器或子流程决定，审批人
+     * 不唯一）或主干链尾（无后续任务）返回 null。任务详情 nextApproverOptions 下发与引擎
+     * registerNextAssignees 登记共用本口径。
+     */
+    public JsonNode nextApproverTarget(JsonNode from, List<JsonNode> passedHosts) {
+        JsonNode node = from;
+        while (node != null) {
+            JsonNode next = chainNext(node);
+            while (next != null && TYPE_TRANSACT.equals(typeOf(next))) {
+                next = chainNext(next);
+            }
+            if (next != null) {
+                return TYPE_APPROVER.equals(typeOf(next)) ? next : null;
+            }
+            BranchHost host = findBranchHost(idOf(node));
+            if (host == null) {
+                return null;
+            }
+            if (passedHosts != null) {
+                passedHosts.add(host.getContainer());
+            }
+            node = host.getContainer();
+        }
+        return null;
+    }
+
+    /**
      * 是否分支容器（CONDITIONS/PARALLEL）：两者都以 conditionNodes 横向展开多列
      */
     public static boolean isBranchContainer(JsonNode node) {
@@ -208,20 +239,50 @@ public final class FlowDesignCursor {
     }
 
     /**
-     * 退回目标集合：先序位置在 nodeId 之前的 START/APPROVER 节点（对齐前端 getRejectTargets 语义）
+     * 退回目标集合：从根到 nodeId 的唯一路径上先于它的 START/APPROVER 节点（对齐前端 getRejectTargets
+     * 语义）。路径外分支列内的节点不算上游——并行兄弟分支与未选条件列不可作为退回目标；nodeId 不在树内返回空集
      */
     public List<JsonNode> rejectTargetsBefore(String nodeId) {
         List<JsonNode> targets = new ArrayList<>();
-        for (JsonNode node : preorder()) {
-            if (nodeId.equals(idOf(node))) {
-                break;
-            }
-            String type = typeOf(node);
-            if (TYPE_START.equals(type) || TYPE_APPROVER.equals(type)) {
-                targets.add(node);
+        List<JsonNode> trail = new ArrayList<>();
+        if (findTrail(root, nodeId, trail)) {
+            for (JsonNode node : trail) {
+                if (nodeId.equals(idOf(node))) {
+                    break;
+                }
+                String type = typeOf(node);
+                if (TYPE_START.equals(type) || TYPE_APPROVER.equals(type)) {
+                    targets.add(node);
+                }
             }
         }
         return targets;
+    }
+
+    /**
+     * 先序查找从 node 到目标节点的路径（含目标自身）：先沿主干链后继深入，再进各分支列，
+     * 未命中回溯弹出（非路径节点不保留）；命中返回 true 且 trail 即路径
+     */
+    private boolean findTrail(JsonNode node, String nodeId, List<JsonNode> trail) {
+        if (node == null) {
+            return false;
+        }
+        trail.add(node);
+        if (nodeId.equals(idOf(node))) {
+            return true;
+        }
+        if (findTrail(chainNext(node), nodeId, trail)) {
+            return true;
+        }
+        if (isBranchContainer(node)) {
+            for (JsonNode column : branchColumns(node)) {
+                if (findTrail(column, nodeId, trail)) {
+                    return true;
+                }
+            }
+        }
+        trail.remove(trail.size() - 1);
+        return false;
     }
 
     /**

@@ -3,7 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import type { FormInstance, FormRules } from 'element-plus'
 import { ACTION_META, type ActionField, type ActionOption, type ActionSubmit } from './approval-actions'
 import type { AddSignDirection, ApprovalActionKey, ApprovalActionPayload, ReturnMode } from '@/types/workflow'
-import type { PendingSignTaskVO, ReturnTargetVO, SubProcessApproverOptionVO } from '@/types/approval'
+import type { NextApproverOptionVO, PendingSignTaskVO, ReturnTargetVO, SubProcessApproverOptionVO } from '@/types/approval'
 
 const props = withDefaults(
   defineProps<{
@@ -23,10 +23,12 @@ const props = withDefaults(
     pendingSignTasks?: PendingSignTaskVO[]
     /** 子流程下一节点可指定审批人目标（PASS 且下一节点为子流程启动后继续时非空，分开展示主/子流程审批人） */
     subProcessApproverOptions?: SubProcessApproverOptionVO[]
+    /** 下一节点（普通审批节点）可指定审批人目标（PASS 且链后继为普通审批节点时非空，单元素；与人工路由/子流程选项互斥） */
+    nextApproverOptions?: NextApproverOptionVO[]
     /** 提交中：锁定表单与按钮 */
     loading?: boolean
   }>(),
-  { memberOptions: () => [], nodeOptions: () => [], returnTargets: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, pendingSignTasks: () => [], subProcessApproverOptions: () => [], loading: false },
+  { memberOptions: () => [], nodeOptions: () => [], returnTargets: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, pendingSignTasks: () => [], subProcessApproverOptions: () => [], nextApproverOptions: () => [], loading: false },
 )
 
 const emit = defineEmits<{ (e: 'submit', payload: ApprovalActionPayload): void }>()
@@ -42,6 +44,16 @@ const routeAssignees = reactive<Record<string, string>>({})
 
 /** 子流程目标节点指定审批人（nodeId → userId）：仅对候选审批人非空的目标节点生效，可选 */
 const subProcessAssignees = reactive<Record<string, string>>({})
+
+/** 下一节点审批人目标（单元素；后端按链后继类型保证与人工路由/子流程选项互斥，此处双保险排除） */
+const nextApproverOption = computed(() =>
+  props.action === 'PASS' && props.manualRouteOptions.length === 0 && props.subProcessApproverOptions.length === 0
+    ? props.nextApproverOptions[0]
+    : undefined,
+)
+
+/** 下一节点审批人是否多选（会签 AND 多选、或签 OR 单选） */
+const nextAssigneeMultiple = computed(() => nextApproverOption.value?.multiMode === 'AND')
 
 const meta = computed(() => ACTION_META[props.action])
 
@@ -237,6 +249,7 @@ function buildPayload(action: ApprovalActionKey, direction?: AddSignDirection): 
         routeTargetIds?: string[]
         routeAssignees?: Record<string, string>
         subProcessAssignees?: Record<string, string>
+        nextAssignees?: string[]
       } = {
         action: 'PASS',
         comment: text('comment'),
@@ -266,6 +279,13 @@ function buildPayload(action: ApprovalActionKey, direction?: AddSignDirection): 
         }
       }
       payload.subProcessAssignees = Object.keys(subAssignees).length > 0 ? subAssignees : undefined
+      // 下一节点（普通审批节点）指定审批人（单选值归一为数组；仅收集非空值）
+      if (nextApproverOption.value) {
+        const picked = Array.isArray(form.nextAssignees)
+          ? [...(form.nextAssignees as string[])]
+          : (typeof form.nextAssignees === 'string' && form.nextAssignees ? [form.nextAssignees] : [])
+        payload.nextAssignees = picked.length > 0 ? picked : undefined
+      }
       return payload
     }
     default:
@@ -291,6 +311,7 @@ function resetForm(): void {
   form.routeTargetIds = []
   form.returnMode = 'STEP'
   form.returnAssignees = []
+  form.nextAssignees = nextAssigneeMultiple.value ? [] : ''
   formRef.value?.clearValidate()
 }
 
@@ -355,6 +376,35 @@ defineExpose({ resetForm })
         >
           <el-option v-for="opt in branch.children" :key="opt.id" :label="opt.label" :value="opt.id" />
         </el-select>
+      </el-form-item>
+
+      <!-- 下一节点为普通审批节点：可选指定该节点审批人（或签单选 / 会签多选，缺省按节点配置） -->
+      <el-form-item
+        v-if="meta.key === 'PASS' && nextApproverOption && nextApproverOption.assigneeOptions.length > 0"
+        :label="`${nextApproverOption.nodeName}审批人`"
+      >
+        <div class="approval-field">
+          <el-select
+            :model-value="form.nextAssignees"
+            :multiple="nextAssigneeMultiple"
+            :placeholder="nextAssigneeMultiple
+              ? `请选择${nextApproverOption.nodeName}审批人（会签：所选人员均须通过，可选）`
+              : '默认按节点配置审批（可选）'"
+            clearable
+            filterable
+            :disabled="loading"
+            class="approval-control"
+            @update:model-value="(value: unknown) => onSelect('nextAssignees', value)"
+          >
+            <el-option
+              v-for="user in nextApproverOption.assigneeOptions"
+              :key="user.userId"
+              :label="user.name"
+              :value="user.userId"
+            />
+          </el-select>
+          <div v-if="nextAssigneeMultiple" class="approval-field-tip">会签节点：所选人员均须通过；不选则按节点配置审批</div>
+        </div>
       </el-form-item>
 
       <div v-if="meta.key === 'PASS' && subProcessApproverOptions.length > 0" class="sub-process-assignees">

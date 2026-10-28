@@ -372,7 +372,7 @@ export type ReturnMode = 'STEP' | 'DIRECT'
  * 意见类字段统一为 `comment`（通过/拒绝/转办/委派/加签为审批意见，抄送为抄送意见，退回为退回理由，取消为取消理由）。
  */
 export type ApprovalActionPayload =
-  | { action: 'PASS'; comment: string; routeTargetId?: string; routeTargetIds?: string[]; routeAssignees?: Record<string, string>; subProcessAssignees?: Record<string, string> }
+  | { action: 'PASS'; comment: string; routeTargetId?: string; routeTargetIds?: string[]; routeAssignees?: Record<string, string>; subProcessAssignees?: Record<string, string>; nextAssignees?: string[] }
   | { action: 'REJECT' | 'COMMENT'; comment: string }
   | { action: 'COPY'; receiverIds: string[]; comment: string }
   | { action: 'TRANSFER' | 'DELEGATE'; receiverId: string; comment: string }

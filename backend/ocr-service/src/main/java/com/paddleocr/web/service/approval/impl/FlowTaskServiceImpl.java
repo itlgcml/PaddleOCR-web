@@ -14,6 +14,7 @@ import com.paddleocr.web.model.dto.TaskActionDTO;
 import com.paddleocr.web.model.vo.ApproverButtonVO;
 import com.paddleocr.web.model.vo.InstanceDetailVO;
 import com.paddleocr.web.model.vo.ManualRouteOptionVO;
+import com.paddleocr.web.model.vo.NextApproverOptionVO;
 import com.paddleocr.web.model.vo.PendingSignTaskVO;
 import com.paddleocr.web.model.vo.ReturnTargetVO;
 import com.paddleocr.web.model.vo.SubProcessApproverOptionVO;
@@ -36,8 +37,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static com.paddleocr.web.service.approval.engine.FlowDesignCursor.TYPE_APPROVER;
@@ -129,6 +132,7 @@ public class FlowTaskServiceImpl implements FlowTaskService {
         vo.setManualRouteOptions(Collections.emptyList());
         vo.setManualRouteMultiple(false);
         vo.setSubProcessApproverOptions(Collections.emptyList());
+        vo.setNextApproverOptions(Collections.emptyList());
         if (cursor != null) {
             JsonNode node = cursor.findNode(task.getNodeId());
             if (SIGN_BEFORE.equals(task.getSignType())) {
@@ -143,6 +147,8 @@ public class FlowTaskServiceImpl implements FlowTaskService {
                         instance == null ? null : instance.getStartUserId()));
                 vo.setManualRouteMultiple(node != null && isManualParallel(chainNext(node)));
                 vo.setSubProcessApproverOptions(buildSubProcessApproverOptions(node, instance));
+                vo.setNextApproverOptions(buildNextApproverOptions(cursor, node, task,
+                        instance == null ? null : instance.getStartUserId()));
             }
         }
         vo.setPendingSignTasks(buildPendingSignTasks(task));
@@ -423,6 +429,65 @@ public class FlowTaskServiceImpl implements FlowTaskService {
             options.add(buildSubProcessOption(parentFirst, SCOPE_MAIN, instance.getProcessName(), startUserId));
         }
         return options;
+    }
+
+    /**
+     * 下一节点可指定审批人目标：当前任务节点的链后继穿透落点（nextApproverTarget：穿透直通办理
+     * 节点 TRANSACT，分支列尾经容器汇合后继链定位——与引擎 tryMergeParallel 完成容器后 advance
+     * 容器 childNode 的流转落点一致）为普通审批节点（APPROVER）时返回该目标（单元素）——候选审批人
+     * 非空时 PASS 弹窗渲染「下一节点审批人」选择，选定值经 nextAssignees 回传，引擎登记
+     * assigneeOverrides 供建任务时替代默认解析（同一操作内登记与消费）。
+     * 链后继为人工路由/人工并行（manualRouteOptions 已覆盖）、子流程（subProcessApproverOptions 已覆盖）、
+     * AUTO 分支容器（条件运行时求值落点不定/并行各列同时建任务，本期不开放指定）或链尾时返回空列表；
+     * 分支列尾经容器汇合场景，途经容器内还有其它 PENDING 任务（并行兄弟分支/会签同节点未完成）时
+     * 本次 PASS 不会触发汇合推进（指定将随上下文丢弃），同样返回空列表。
+     */
+    private List<NextApproverOptionVO> buildNextApproverOptions(FlowDesignCursor cursor, JsonNode node,
+                                                                FlowTaskDO task, Long startUserId) {
+        if (node == null) {
+            return Collections.emptyList();
+        }
+        List<JsonNode> passedHosts = new ArrayList<>();
+        JsonNode next = cursor.nextApproverTarget(node, passedHosts);
+        if (next == null || hasOtherPendingInHosts(cursor, passedHosts, task, node)) {
+            return Collections.emptyList();
+        }
+        NextApproverOptionVO option = new NextApproverOptionVO();
+        option.setNodeId(idOf(next));
+        option.setNodeName(nameOf(next));
+        option.setMultiMode(propsOf(next).path("multiMode").asText("OR"));
+        option.setAssigneeOptions(resolveAssignees(next, startUserId));
+        return Collections.singletonList(option);
+    }
+
+    /**
+     * 途经容器汇合判定（对齐引擎 nodeCompleted/tryMergeParallel 口径）：任一途经容器内存在
+     * 阻塞本次推进的 PENDING 任务时返回 true——其它节点的 PENDING（并行兄弟分支未走完）恒阻塞；
+     * 与当前任务同节点的 PENDING 仅或签（OR，PASS 时取消其余一票即成）不阻塞，会签（AND，
+     * 等待全员）与 PENDING 加签任务阻塞。目标指定与消费须在同一操作内完成（assigneeOverrides
+     * 随上下文丢弃），不满足时不开放指定。
+     */
+    private boolean hasOtherPendingInHosts(FlowDesignCursor cursor, List<JsonNode> hosts,
+                                           FlowTaskDO task, JsonNode node) {
+        String multiMode = propsOf(node).path("multiMode").asText("OR");
+        for (JsonNode container : hosts) {
+            Set<String> nodeIds = new HashSet<>();
+            for (JsonNode column : branchColumns(container)) {
+                nodeIds.addAll(cursor.collectBranchNodeIds(column));
+            }
+            List<FlowTaskDO> pendings = flowTaskMapper.selectList(new LambdaQueryWrapper<FlowTaskDO>()
+                    .eq(FlowTaskDO::getInstanceId, task.getInstanceId())
+                    .eq(FlowTaskDO::getStatus, TaskStatus.PENDING)
+                    .in(FlowTaskDO::getNodeId, nodeIds));
+            for (FlowTaskDO pending : pendings) {
+                boolean sameNode = task.getNodeId().equals(pending.getNodeId());
+                boolean orVote = sameNode && pending.getParentTaskId() == null && "OR".equals(multiMode);
+                if (!orVote) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private SubProcessApproverOptionVO buildSubProcessOption(JsonNode approver, String scopeType,

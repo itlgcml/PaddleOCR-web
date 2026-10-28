@@ -38,6 +38,9 @@ public class TaskDetailVO extends InstanceDetailVO implements Serializable {
     @Schema(description = "下一节点为子流程（启动后继续）时可指定审批人目标（子流程首节点 + 父链下一节点，PASS 弹窗分开展示并可分别指定；其他场景为空）")
     private List<SubProcessApproverOptionVO> subProcessApproverOptions;
 
+    @Schema(description = "下一节点（普通审批节点，穿透直通办理节点）可指定审批人目标（单元素，PASS 弹窗渲染「下一节点审批人」选择；与人工路由/子流程选项按链后继类型互斥）")
+    private List<NextApproverOptionVO> nextApproverOptions;
+
     @Schema(description = "当前任务直接派生且 PENDING 的加签任务（发起加签人视角：同意前提示加签人未审，可携带 targetTaskId 发起 REDUCE_SIGN 减签）")
     private List<PendingSignTaskVO> pendingSignTasks;
 

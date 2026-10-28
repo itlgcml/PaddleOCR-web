@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import ApprovalActionPanel from './ApprovalActionPanel.vue'
 import { ACTION_META, ACTION_ORDER, type ActionOption } from './approval-actions'
 import type { ApprovalActionKey, ApprovalActionPayload } from '@/types/workflow'
-import type { PendingSignTaskVO, ReturnTargetVO, SubProcessApproverOptionVO } from '@/types/approval'
+import type { NextApproverOptionVO, PendingSignTaskVO, ReturnTargetVO, SubProcessApproverOptionVO } from '@/types/approval'
 
 const props = withDefaults(
   defineProps<{
@@ -23,10 +23,12 @@ const props = withDefaults(
     pendingSignTasks?: PendingSignTaskVO[]
     /** 子流程下一节点可指定审批人目标（PASS 且下一节点为子流程启动后继续时非空） */
     subProcessApproverOptions?: SubProcessApproverOptionVO[]
+    /** 下一节点（普通审批节点）可指定审批人目标（PASS 且链后继为普通审批节点时非空，单元素） */
+    nextApproverOptions?: NextApproverOptionVO[]
     /** 提交中：禁用按钮并锁定面板 */
     loading?: boolean
   }>(),
-  { actions: undefined, memberOptions: () => [], nodeOptions: () => [], returnTargets: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, pendingSignTasks: () => [], subProcessApproverOptions: () => [], loading: false },
+  { actions: undefined, memberOptions: () => [], nodeOptions: () => [], returnTargets: () => [], manualRouteOptions: () => [], manualRouteMultiple: false, pendingSignTasks: () => [], subProcessApproverOptions: () => [], nextApproverOptions: () => [], loading: false },
 )
 
 const emit = defineEmits<{ (e: 'submit', payload: ApprovalActionPayload): void }>()
@@ -94,6 +96,7 @@ defineExpose({ reset })
         :manual-route-options="manualRouteOptions"
         :manual-route-multiple="manualRouteMultiple"
         :sub-process-approver-options="subProcessApproverOptions"
+        :next-approver-options="nextApproverOptions"
         :pending-sign-tasks="pendingSignTasks"
         :loading="loading"
         @submit="emit('submit', $event)"

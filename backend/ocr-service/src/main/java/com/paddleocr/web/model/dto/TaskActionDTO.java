@@ -65,6 +65,10 @@ public class TaskActionDTO implements Serializable {
             "可选，userId 须为对应 subProcessApproverOptions[].assigneeOptions 内的候选审批人；不传时按节点默认解析")
     private Map<String, String> subProcessAssignees;
 
+    @Schema(description = "下一节点（普通审批节点，穿透直通办理节点）的指定审批人 ID 集合：PASS 且 nextApproverOptions 非空时可选，" +
+            "每人均须为 nextApproverOptions[0].assigneeOptions 内的候选审批人（或签选 1 人、会签按需多选）；不传时按节点默认解析")
+    private List<String> nextAssignees;
+
     @Schema(description = "加签方向：ADD_SIGN 必填（BEFORE/AFTER）")
     @Pattern(regexp = "^(BEFORE|AFTER)$", message = "加签方向仅支持 BEFORE/AFTER")
     private String direction;
